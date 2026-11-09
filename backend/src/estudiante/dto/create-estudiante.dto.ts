@@ -1,5 +1,6 @@
 import {
     IsDateString,
+    IsEmail,
     IsNotEmpty,
     IsOptional,
     IsString,
@@ -26,4 +27,9 @@ export class CreateEstudianteDto {
     @IsString()
     @MaxLength(20)
     telefono?: string;
+
+    @IsOptional()
+    @IsEmail()
+    @MaxLength(150)
+    email?: string;
 }

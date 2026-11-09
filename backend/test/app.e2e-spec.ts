@@ -1,29 +1,31 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
+import { AppModule } from '../src/app.module';
+import { DatabaseService } from '../src/database/database.service';
 
-describe('AppController (e2e)', () => {
+describe('Acceso a la API', () => {
   let app: INestApplication<App>;
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
+  beforeAll(async () => {
+    const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(DatabaseService)
+      .useValue({})
+      .compile();
+    app = module.createNestApplication();
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  it('requiere sesión para consultar cursos', async () => {
+    await request(app.getHttpServer()).get('/cursos').expect(401);
   });
 
-  afterEach(async () => {
-    await app.close();
+  it('requiere sesión para registrar un pago', async () => {
+    await request(app.getHttpServer()).post('/pagos').send({}).expect(401);
+  });
+
+  afterAll(async () => {
+    await app?.close();
   });
 });

@@ -74,19 +74,20 @@ export class EstudianteService {
                 sql.VarChar(20),
                 estudiante.telefono ?? null,
             )
+            .input('email', sql.NVarChar(150), estudiante.email ?? null)
             .query(`
                 INSERT INTO estudiante (
                     nombres,
                     apellidos,
                     fecha_nacimiento,
-                    telefono
+                    telefono, email
                 )
                 OUTPUT INSERTED.*
                 VALUES (
                     @nombres,
                     @apellidos,
                     @fecha_nacimiento,
-                    @telefono
+                    @telefono, @email
                 );
             `);
 
@@ -125,6 +126,11 @@ export class EstudianteService {
         if (estudiante.telefono !== undefined) {
             campos.push('telefono = @telefono');
             request.input('telefono', estudiante.telefono);
+        }
+
+        if (estudiante.email !== undefined) {
+            campos.push('email = @email');
+            request.input('email', sql.NVarChar(150), estudiante.email);
         }
 
         if (campos.length === 0) {

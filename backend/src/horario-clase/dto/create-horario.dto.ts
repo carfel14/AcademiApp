@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsString, } from 'class-validator';
+import { IsIn, IsNotEmpty, IsString, Matches, } from 'class-validator';
 
 export class CreateHorarioDto {
 
@@ -20,9 +20,11 @@ export class CreateHorarioDto {
 
     @IsNotEmpty()
     @IsString()
+    @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
     hora_inicio!: string;
 
     @IsNotEmpty()
     @IsString()
+    @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
     hora_fin!: string;
 }

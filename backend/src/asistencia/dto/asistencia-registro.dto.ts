@@ -14,6 +14,7 @@ export class AsistenciaRegistroDto {
     'PRESENTE',
     'AUSENTE',
     'JUSTIFICADO',
+    'SUSPENDIDO_POR_MORA',
   ])
   estado_asistencia!: string;
 

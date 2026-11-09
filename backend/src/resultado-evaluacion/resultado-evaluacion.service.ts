@@ -19,10 +19,11 @@ export class ResultadoEvaluacionService {
   // OBTENER TODOS
   // ============================================================
 
-  async getResultados() {
+  async getResultados(sesion?: number) {
     const pool = this.databaseService.getPool();
 
-    const result = await pool.request().query(`
+    const result = await pool.request().input('sesion', sql.Int, sesion ?? null)
+      .query(`
       SELECT
         r.*,
         e.tipo_evaluacion,
@@ -38,6 +39,7 @@ export class ResultadoEvaluacionService {
         ON r.id_inscripcion = i.id_inscripcion
       INNER JOIN estudiante est
         ON i.id_estudiante = est.id_estudiante
+      WHERE @sesion IS NULL OR e.id_sesion = @sesion
       ORDER BY
         e.id_evaluacion,
         est.apellidos,
@@ -90,344 +92,91 @@ export class ResultadoEvaluacionService {
     idEvaluacion: number,
     data: CreateResultadosEvaluacionDto,
   ) {
-    const pool = this.databaseService.getPool();
-
-    // ==========================================================
-    // 1. VERIFICAR EVALUACIÓN + SESIÓN + GRUPO
-    // ==========================================================
-
-    const evaluacionResult = await pool
-      .request()
-      .input('id_evaluacion', idEvaluacion).query(`
-        SELECT
-          e.id_evaluacion,
-          e.id_sesion,
-          s.id_grupo,
-          s.estado_sesion
-        FROM evaluacion e
-        INNER JOIN sesion_clase s
-          ON e.id_sesion = s.id_sesion
-        WHERE e.id_evaluacion = @id_evaluacion;
-      `);
-
-    if (evaluacionResult.recordset.length === 0) {
-      throw new NotFoundException(
-        `La evaluación con id ${idEvaluacion} no fue encontrada.`,
-      );
-    }
-
-    const evaluacion = evaluacionResult.recordset[0];
-
-    // ==========================================================
-    // 2. VALIDAR ESTADO DE LA SESIÓN
-    // ==========================================================
-
-    if (evaluacion.estado_sesion === 'CANCELADA') {
-      throw new BadRequestException(
-        'No se pueden registrar resultados para una sesión cancelada.',
-      );
-    }
-
-    if (evaluacion.estado_sesion === 'REALIZADA') {
-      throw new BadRequestException(
-        'No se pueden registrar nuevos resultados para una sesión que ya fue realizada.',
-      );
-    }    
-
-    // ==========================================================
-    // 4. VERIFICAR ASISTENCIAS DE LA SESIÓN
-    // ==========================================================
-
-    const asistenciasResult = await pool
-      .request()
-      .input('id_sesion', evaluacion.id_sesion)
-      .input('id_grupo', evaluacion.id_grupo).query(`
-        SELECT
-          a.id_inscripcion,
-          a.estado_asistencia
-        FROM asistencia a
-        INNER JOIN inscripcion i
-          ON a.id_inscripcion = i.id_inscripcion
-        WHERE a.id_sesion = @id_sesion
-          AND i.id_grupo = @id_grupo;
-      `);
-
-    const asistencias = asistenciasResult.recordset;
-
-    if (asistencias.length === 0) {
-      throw new BadRequestException(
-        'No existen asistencias registradas para esta sesión. Primero debe registrarse la asistencia.',
-      );
-    }
-
-    // ==========================================================
-    // 5. VERIFICAR INSCRIPCIONES REPETIDAS
-    // ==========================================================
-
-    const idsEnviados = data.resultados.map(
-      (resultado) => resultado.id_inscripcion,
-    );
-
-    const idsUnicos = new Set(idsEnviados);
-
-    if (idsEnviados.length !== idsUnicos.size) {
-      throw new BadRequestException(
-        'No puede haber inscripciones repetidas en los resultados.',
-      );
-    }
-
-    // ==========================================================
-    // 6. MAPA DE ASISTENCIAS
-    // ==========================================================
-
-    const asistenciaMap = new Map<number, string>();
-
-    for (const asistencia of asistencias) {
-      asistenciaMap.set(
-        asistencia.id_inscripcion,
-        asistencia.estado_asistencia,
-      );
-    }
-
-    // ==========================================================
-    // 7. VALIDAR QUE LAS INSCRIPCIONES ENVIADAS
-    //    TENGAN ASISTENCIA EN ESTA SESIÓN
-    // ==========================================================
-
-    for (const resultado of data.resultados) {
-      if (!asistenciaMap.has(resultado.id_inscripcion)) {
+    return this.databaseService.transaction(async (tx) => {
+      const evaluacion = (
+        await tx.request().input('id', idEvaluacion).query(`
+        SELECT s.id_sesion, s.estado_sesion FROM evaluacion e
+        JOIN sesion_clase s WITH (UPDLOCK, HOLDLOCK) ON s.id_sesion = e.id_sesion
+        WHERE e.id_evaluacion = @id
+      `)
+      ).recordset[0];
+      if (!evaluacion) throw new NotFoundException('La evaluación no existe.');
+      if (evaluacion.estado_sesion !== 'PROGRAMADA') {
         throw new BadRequestException(
-          `La inscripción ${resultado.id_inscripcion} no tiene asistencia registrada para esta sesión.`,
+          'La sesión debe estar programada para registrar resultados.',
         );
       }
-
-      const estadoAsistencia = asistenciaMap.get(resultado.id_inscripcion);
-
-      // El frontend solamente debe enviar PRESENTES
-      if (estadoAsistencia !== 'PRESENTE') {
-        throw new BadRequestException(
-          `La inscripción ${resultado.id_inscripcion} no estuvo PRESENTE y no debe enviarse en los resultados.`,
-        );
-      }
-    }
-
-    // ==========================================================
-    // 8. VERIFICAR QUE TODOS LOS PRESENTES TENGAN RESULTADO
-    // ==========================================================
-
-    const presentes = asistencias.filter(
-      (asistencia) => asistencia.estado_asistencia === 'PRESENTE',
-    );
-
-    const presentesSinResultado = presentes.filter(
-      (asistencia) => !idsUnicos.has(asistencia.id_inscripcion),
-    );
-
-    if (presentesSinResultado.length > 0) {
-      const idsFaltantes = presentesSinResultado.map(
-        (asistencia) => asistencia.id_inscripcion,
-      );
-
-      throw new BadRequestException(
-        `Debe registrar el resultado de todos los estudiantes presentes. Inscripciones faltantes: ${idsFaltantes.join(', ')}`,
-      );
-    }
-
-    // ==========================================================
-    // 9. VERIFICAR RESULTADOS PREVIOS
-    // ==========================================================
-
-    for (const resultado of data.resultados) {
-      const existente = await pool
+      const { recordset: asistencia } = await tx
         .request()
-        .input('id_evaluacion', idEvaluacion)
-        .input('id_inscripcion', resultado.id_inscripcion).query(`
-          SELECT id_resultado
-          FROM resultado_evaluacion
-          WHERE id_evaluacion = @id_evaluacion
-            AND id_inscripcion = @id_inscripcion;
-        `);
-
-      if (existente.recordset.length > 0) {
+        .input('sesion', evaluacion.id_sesion).query(`
+        SELECT id_inscripcion, estado_asistencia FROM asistencia WHERE id_sesion = @sesion
+      `);
+      if (!asistencia.length)
         throw new BadRequestException(
-          `La inscripción ${resultado.id_inscripcion} ya tiene un resultado para esta evaluación.`,
+          'Registra primero la asistencia de la sesión.',
+        );
+      const presentes = asistencia.filter(
+        (a) => a.estado_asistencia === 'PRESENTE',
+      );
+      const notas = new Map(
+        data.resultados.map((r) => [r.id_inscripcion, r.nota] as const),
+      );
+      if (
+        notas.size !== presentes.length ||
+        notas.size !== data.resultados.length ||
+        presentes.some((a) => !notas.has(a.id_inscripcion))
+      ) {
+        throw new BadRequestException(
+          'Registra una nota para cada estudiante presente.',
         );
       }
-    }
-
-    // ==========================================================
-    // 10. INICIAR TRANSACCIÓN
-    // ==========================================================
-
-    const transaction = new sql.Transaction(pool);
-
-    await transaction.begin();
-
-    try {
-      const resultadosCreados: any[] = [];
-
-      // ========================================================
-      // 11. CREAR RESULTADOS DE LOS PRESENTES
-      // ========================================================
-
-      for (const resultado of data.resultados) {
-        if (resultado.nota === undefined || resultado.nota === null) {
-          throw new BadRequestException(
-            `La inscripción ${resultado.id_inscripcion} estuvo presente y debe tener una nota.`,
-          );
-        }
-
-        if (resultado.nota < 0 || resultado.nota > 100) {
-          throw new BadRequestException(
-            `La nota de la inscripción ${resultado.id_inscripcion} debe estar entre 0 y 100.`,
-          );
-        }
-
-        const request = new sql.Request(transaction);
-
-        request
-          .input('id_evaluacion', idEvaluacion)
-          .input('id_inscripcion', resultado.id_inscripcion)
-          .input('nota', resultado.nota)
-          .input('estado_resultado', 'CALIFICADO');
-
-        const result = await request.query(`
-          INSERT INTO resultado_evaluacion (
-            id_evaluacion,
-            id_inscripcion,
-            nota,
-            estado_resultado
-          )
-          OUTPUT INSERTED.*
-          VALUES (
-            @id_evaluacion,
-            @id_inscripcion,
-            @nota,
-            @estado_resultado
-          );
-        `);
-
-        resultadosCreados.push(result.recordset[0]);
-      }
-
-      // ========================================================
-      // 12. GENERAR AUTOMÁTICAMENTE NO_SE_PRESENTO
-      //     PARA LOS NO PRESENTES
-      // ========================================================
-
-      const noPresentes = asistencias.filter(
-        (asistencia) =>
-          asistencia.estado_asistencia === 'AUSENTE' ||
-          asistencia.estado_asistencia === 'JUSTIFICADO' ||
-          asistencia.estado_asistencia === 'SUSPENDIDO_POR_MORA',
-      );
-
-      for (const asistencia of noPresentes) {
-        const request = new sql.Request(transaction);
-
-        request
-          .input('id_evaluacion', idEvaluacion)
-          .input('id_inscripcion', asistencia.id_inscripcion)
-          .input('nota', null)
-          .input('estado_resultado', 'NO_SE_PRESENTO');
-
-        const result = await request.query(`
-          INSERT INTO resultado_evaluacion (
-            id_evaluacion,
-            id_inscripcion,
-            nota,
-            estado_resultado
-          )
-          OUTPUT INSERTED.*
-          VALUES (
-            @id_evaluacion,
-            @id_inscripcion,
-            @nota,
-            @estado_resultado
-          );
-        `);
-
-        resultadosCreados.push(result.recordset[0]);
-      }
-
-      // ========================================================
-      // 13. VERIFICAR SI TODAS LAS EVALUACIONES DE LA SESIÓN
-      //     YA ESTÁN COMPLETAMENTE PROCESADAS
-      // ========================================================
-
-      const evaluacionesSesion = await new sql.Request(transaction).input(
-        'id_sesion',
-        evaluacion.id_sesion,
-      ).query(`
-        SELECT
-          e.id_evaluacion
-        FROM evaluacion e
-        WHERE e.id_sesion = @id_sesion;
+      const previos = await tx.request().input('id', idEvaluacion).query(`
+        SELECT id_resultado FROM resultado_evaluacion WHERE id_evaluacion = @id
       `);
-
-      const evaluaciones: { id_evaluacion: number }[] =
-        evaluacionesSesion.recordset;
-
-      const evaluacionesIncompletas: number[] = [];
-
-      let sesionFinalizada = false;
-
-      if (evaluaciones.length > 0) {
-        for (const evaluacionSesion of evaluaciones) {
-          const resultadoEvaluacion = await new sql.Request(transaction).input(
-            'id_evaluacion',
-            evaluacionSesion.id_evaluacion,
-          ).query(`
-            SELECT COUNT(*) AS total
-            FROM resultado_evaluacion
-            WHERE id_evaluacion = @id_evaluacion;
+      if (previos.recordset.length)
+        throw new BadRequestException(
+          'Los resultados ya están registrados. Edita las notas existentes.',
+        );
+      const resultados: { id_resultado: number }[] = [];
+      for (const alumno of asistencia) {
+        const nota = notas.get(alumno.id_inscripcion) ?? null;
+        const { recordset } = await tx
+          .request()
+          .input('id', idEvaluacion)
+          .input('inscripcion', alumno.id_inscripcion)
+          .input('nota', sql.Decimal(5, 2), nota)
+          .input('estado', nota === null ? 'NO_SE_PRESENTO' : 'CALIFICADO')
+          .query(`
+            INSERT INTO resultado_evaluacion (id_evaluacion, id_inscripcion, nota, estado_resultado)
+            OUTPUT INSERTED.* VALUES (@id, @inscripcion, @nota, @estado)
           `);
-
-          const totalResultados = resultadoEvaluacion.recordset[0].total;
-
-          if (totalResultados < asistencias.length) {
-            evaluacionesIncompletas.push(evaluacionSesion.id_evaluacion);
-          }
-        }
-
-        // Si ninguna evaluación está incompleta,
-        // la sesión puede darse por realizada.
-        if (evaluacionesIncompletas.length === 0) {
-          await new sql.Request(transaction).input(
-            'id_sesion',
-            evaluacion.id_sesion,
-          ).query(`
-              UPDATE sesion_clase
-              SET estado_sesion = 'REALIZADA'
-              WHERE id_sesion = @id_sesion;
-            `);
-
-          sesionFinalizada = true;
-        }
+        resultados.push(recordset[0]);
       }
-
-      // ========================================================
-      // 14. CONFIRMAR TRANSACCIÓN
-      // ========================================================
-
-      await transaction.commit();
-
+      const cierre = await tx.request().input('sesion', evaluacion.id_sesion)
+        .query(`
+        UPDATE s SET estado_sesion = 'REALIZADA'
+        FROM sesion_clase s WHERE s.id_sesion = @sesion AND s.estado_sesion = 'PROGRAMADA'
+          AND NOT EXISTS (
+            SELECT 1 FROM inscripcion i WHERE i.id_grupo = s.id_grupo AND i.estado_inscripcion = 'ACTIVA'
+              AND i.fecha_inscripcion <= s.fecha_programada
+              AND NOT EXISTS (SELECT 1 FROM asistencia a WHERE a.id_sesion = @sesion AND a.id_inscripcion = i.id_inscripcion)
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM evaluacion e CROSS JOIN asistencia a
+            WHERE e.id_sesion = @sesion AND a.id_sesion = @sesion AND NOT EXISTS (
+              SELECT 1 FROM resultado_evaluacion r WHERE r.id_evaluacion = e.id_evaluacion AND r.id_inscripcion = a.id_inscripcion
+            )
+          )
+      `);
       return {
-        mensaje: 'Resultados registrados correctamente.',
+        mensaje: 'Resultados registrados.',
         id_evaluacion: idEvaluacion,
-        cantidad: resultadosCreados.length,
-        sesion_finalizada: sesionFinalizada,
-        resultados: resultadosCreados,
+        cantidad: resultados.length,
+        sesion_finalizada: cierre.rowsAffected[0] > 0,
+        resultados,
       };
-    } catch (error) {
-      await transaction.rollback();
-      throw error;
-    }
+    });
   }
-
-  // ============================================================
-  // ACTUALIZAR UN RESULTADO
-  // ============================================================
 
   async updateResultado(id: number, data: UpdateResultadoEvaluacionDto) {
     const pool = this.databaseService.getPool();
@@ -466,12 +215,9 @@ export class ResultadoEvaluacionService {
     // 2. VALIDAR ESTADO DE LA SESIÓN
     // ==========================================================
 
-    if (
-      actual.estado_sesion === 'CANCELADA' ||
-      actual.estado_sesion === 'REALIZADA'
-    ) {
+    if (actual.estado_sesion === 'CANCELADA') {
       throw new BadRequestException(
-        'No se puede modificar un resultado perteneciente a una sesión cancelada o ya realizada.',
+        'No se puede modificar un resultado perteneciente a una sesión cancelada.',
       );
     }
 
@@ -590,6 +336,6 @@ export class ResultadoEvaluacionService {
         WHERE r.id_resultado = @id;
       `);
 
-    return result.recordsets[1][0];
+    return result.recordset[0];
   }
 }

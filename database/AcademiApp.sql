@@ -322,9 +322,7 @@ CREATE TABLE obligacion_pago (
     fecha_vencimiento DATE NOT NULL,
     monto NUMERIC(10,2) NOT NULL,
 
-    estado VARCHAR(20) NOT NULL,
-    
-    CONSTRAINT DF_obligacion_pago_estado DEFAULT 'PENDIENTE',
+    estado VARCHAR(20) NOT NULL CONSTRAINT DF_obligacion_pago_estado DEFAULT 'PENDIENTE',
 
     CONSTRAINT CK_obligacion_pago_estado
     CHECK (estado IN ('PENDIENTE', 'PAGADA', 'ANULADA')),
@@ -502,6 +500,9 @@ CREATE TABLE rol_permiso (
 -- ============================================================================
 -- INDICES
 -- ============================================================================
+
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
 
 CREATE INDEX idx_grupo_curso
 ON grupo(id_curso);
