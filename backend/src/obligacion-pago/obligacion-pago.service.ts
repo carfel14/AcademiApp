@@ -52,30 +52,8 @@ export class ObligacionPagoService {
       o.fecha_vencimiento,
       o.monto,
       o.estado,
-
-      ISNULL(
-        (
-          SELECT SUM(p.monto_pagado)
-          FROM pago p
-          WHERE p.id_obligacion = o.id_obligacion
-        ),
-        0
-      ) AS total_pagado,
-
-      CASE
-        WHEN o.estado = 'ANULADA'
-          THEN 0
-        ELSE
-          o.monto -
-          ISNULL(
-            (
-              SELECT SUM(p.monto_pagado)
-              FROM pago p
-              WHERE p.id_obligacion = o.id_obligacion
-            ),
-            0
-          )
-      END AS saldo_pendiente,
+      o.total_pagado, o.saldo_pendiente, o.monto_ajustado,
+      o.total_recargo, o.total_descuento, o.vencimiento_efectivo,
 
       i.id_estudiante,
       i.id_grupo,
@@ -83,7 +61,7 @@ export class ObligacionPagoService {
       c.id_curso,
       c.nombre_curso
 
-    FROM obligacion_pago o
+    FROM dbo.vw_estado_cuenta o
 
     INNER JOIN inscripcion i
       ON o.id_inscripcion = i.id_inscripcion
@@ -119,30 +97,8 @@ export class ObligacionPagoService {
         o.fecha_vencimiento,
         o.monto,
         o.estado,
-
-        ISNULL(
-          (
-            SELECT SUM(p.monto_pagado)
-            FROM pago p
-            WHERE p.id_obligacion = o.id_obligacion
-          ),
-          0
-        ) AS total_pagado,
-
-        CASE
-          WHEN o.estado = 'ANULADA'
-            THEN 0
-          ELSE
-            o.monto -
-            ISNULL(
-              (
-                SELECT SUM(p.monto_pagado)
-                FROM pago p
-                WHERE p.id_obligacion = o.id_obligacion
-              ),
-              0
-            )
-        END AS saldo_pendiente,
+      o.total_pagado, o.saldo_pendiente, o.monto_ajustado,
+      o.total_recargo, o.total_descuento, o.vencimiento_efectivo,
 
         i.id_estudiante,
         i.id_grupo,
@@ -150,7 +106,7 @@ export class ObligacionPagoService {
         c.id_curso,
         c.nombre_curso
 
-      FROM obligacion_pago o
+      FROM dbo.vw_estado_cuenta o
 
       INNER JOIN inscripcion i
         ON o.id_inscripcion = i.id_inscripcion
@@ -208,32 +164,10 @@ export class ObligacionPagoService {
         o.fecha_vencimiento,
         o.monto,
         o.estado,
+      o.total_pagado, o.saldo_pendiente, o.monto_ajustado,
+      o.total_recargo, o.total_descuento, o.vencimiento_efectivo
 
-        ISNULL(
-          (
-            SELECT SUM(p.monto_pagado)
-            FROM pago p
-            WHERE p.id_obligacion = o.id_obligacion
-          ),
-          0
-        ) AS total_pagado,
-
-        CASE
-          WHEN o.estado = 'ANULADA'
-            THEN 0
-          ELSE
-            o.monto -
-            ISNULL(
-              (
-                SELECT SUM(p.monto_pagado)
-                FROM pago p
-                WHERE p.id_obligacion = o.id_obligacion
-              ),
-              0
-            )
-        END AS saldo_pendiente
-
-      FROM obligacion_pago o
+      FROM dbo.vw_estado_cuenta o
 
       WHERE o.id_inscripcion = @id_inscripcion
 

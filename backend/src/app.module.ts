@@ -17,12 +17,15 @@ import { PagoModule } from './pago/pago.module';
 import { ProrrogaModule } from './prorroga/prorroga.module';
 import { CertificadoModule } from './certificado/certificado.module';
 
+import { SeguridadModule } from './seguridad/seguridad.module';
+import { GestionModule } from './gestion/gestion.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    DatabaseModule,    
+    DatabaseModule, SeguridadModule, GestionModule,
     CursoModule, GrupoModule, HorarioClaseModule, EstudianteModule, ProfesorModule, AsignacionProfesorModule, InscripcionModule, SesionClaseModule, AsistenciaModule, EvaluacionModule, ResultadoEvaluacionModule, ObligacionPagoModule, PagoModule, ProrrogaModule, CertificadoModule,
   ]  
 })

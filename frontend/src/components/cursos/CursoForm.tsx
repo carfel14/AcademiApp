@@ -29,7 +29,7 @@ function CursoForm({ curso, onSubmit }: CursoFormProps) {
     formState: { errors, isSubmitting },
     reset,
   } = useForm<CursoFormData>({
-    resolver: zodResolver(cursoSchema) as any,
+    resolver: zodResolver(cursoSchema),
     defaultValues: {
       nombre_curso: "",
       descripcion: "",

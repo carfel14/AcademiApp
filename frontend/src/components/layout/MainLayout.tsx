@@ -1,21 +1,22 @@
+import { useState } from "react";
 import { Outlet } from "react-router-dom";
-import Sidebar from "./Sidebar"
-import Header from "./Header";
+import { Menu, X } from "lucide-react";
+import Sidebar from "./Sidebar";
+import type { Usuario } from "../../router/AppRouter";
 
-function MainLayout() {
-  return (
-    <div className="min-h-screen bg-gray-100">
-      <Sidebar />
-
-      <div className="ml-64">
-        <Header />
-
-        <main className="p-6">
-          <Outlet />
-        </main>
+export default function MainLayout({ usuario, onLogout }: { usuario: Usuario; onLogout: () => Promise<void> }) {
+  const [menu, setMenu] = useState(false);
+  return <div className="app-frame">
+    <header className="app-top">
+      <button type="button" className="app-menu work-secondary" aria-label={menu ? "Cerrar navegación" : "Abrir navegación"} aria-expanded={menu}
+        aria-controls="app-navigation" onClick={() => setMenu(!menu)}>{menu ? <X size={18} /> : <Menu size={18} />}<span>Menú</span></button>
+      <span className="app-top-title">Academia Silvia</span>
+      <div className="app-account">
+        <span>{usuario.nombres} {usuario.apellidos}</span>
+        <button className="work-link" onClick={() => void onLogout().catch(() => undefined)}>Salir</button>
       </div>
-    </div>
-  );
+    </header>
+    <Sidebar rol={usuario.rol} open={menu} onNavigate={() => setMenu(false)} />
+    <main className="app-sheet"><Outlet /></main>
+  </div>;
 }
-
-export default MainLayout;

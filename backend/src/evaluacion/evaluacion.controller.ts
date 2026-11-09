@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   Param,
+  ParseIntPipe,
+  Query,
   Patch,
   Post,
 } from '@nestjs/common';
@@ -18,13 +20,13 @@ export class EvaluacionController {
   ) {}
 
   @Get()
-  getEvaluaciones() {
-    return this.evaluacionService.getEvaluaciones();
+  getEvaluaciones(@Query('sesion', new ParseIntPipe({ optional: true })) sesion?: number) {
+    return this.evaluacionService.getEvaluaciones(sesion);
   }
 
   @Get(':id')
-  getEvaluacion(@Param('id') id: string) {
-    return this.evaluacionService.getEvaluacion(+id);
+  getEvaluacion(@Param('id', ParseIntPipe) id: number) {
+    return this.evaluacionService.getEvaluacion(id);
   }
 
   @Post()
@@ -34,11 +36,11 @@ export class EvaluacionController {
 
   @Patch(':id')
   updateEvaluacion(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() evaluacion: UpdateEvaluacionDto,
   ) {
     return this.evaluacionService.updateEvaluacion(
-      +id,
+      id,
       evaluacion,
     );
   }

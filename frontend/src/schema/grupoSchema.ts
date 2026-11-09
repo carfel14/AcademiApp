@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-const duracionMesesSchema = z.coerce
+const duracionMesesSchema = z
   .number({
-    invalid_type_error: "La duración debe ser un número",
+    error: "La duración debe ser un número",
   })
   .int("La duración debe ser un número entero")
   .min(1, "La duración debe ser mayor a 0");

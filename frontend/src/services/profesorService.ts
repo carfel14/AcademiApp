@@ -1,8 +1,9 @@
+import { apiFetch } from "./api";
 // src/services/profesorService.ts
 import type { Profesor } from "../types/profesor";
 import type { ProfesorFormData } from "../schema/profesorSchema";
 
-const API_URL = "http://localhost:3000/profesores";
+const API_URL = "/profesores";
 
 function normalizarProfesor(profesor: Partial<Profesor>): Profesor {
   return {
@@ -16,7 +17,7 @@ function normalizarProfesor(profesor: Partial<Profesor>): Profesor {
 }
 
 export async function obtenerProfesores(): Promise<Profesor[]> {
-  const response = await fetch(API_URL);
+  const response = await apiFetch(API_URL);
 
   if (!response.ok) {
     throw new Error("No se pudieron obtener los profesores");
@@ -27,7 +28,7 @@ export async function obtenerProfesores(): Promise<Profesor[]> {
 }
 
 export async function obtenerProfesor(id: number): Promise<Profesor> {
-  const response = await fetch(`${API_URL}/${id}`);
+  const response = await apiFetch(`${API_URL}/${id}`);
 
   if (!response.ok) {
     throw new Error("No se pudo obtener el profesor");
@@ -38,7 +39,7 @@ export async function obtenerProfesor(id: number): Promise<Profesor> {
 }
 
 export async function crearProfesor(data: ProfesorFormData): Promise<Profesor> {
-  const response = await fetch(API_URL, {
+  const response = await apiFetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -62,7 +63,7 @@ export async function actualizarProfesor(
   id: number,
   data: ProfesorFormData
 ): Promise<Profesor> {
-  const response = await fetch(`${API_URL}/${id}`, {
+  const response = await apiFetch(`${API_URL}/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -83,7 +84,7 @@ export async function actualizarProfesor(
 }
 
 export async function eliminarProfesor(id: number): Promise<void> {
-  const response = await fetch(`${API_URL}/${id}`, {
+  const response = await apiFetch(`${API_URL}/${id}`, {
     method: "DELETE",
   });
 

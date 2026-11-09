@@ -5,6 +5,7 @@ export interface Estudiante {
   nombres: string;
   apellidos: string;
   fecha_nacimiento?: string | null;
+  email?: string | null;
   telefono?: string | null;
   fecha_registro: string;
   estado: "ACTIVO" | "INACTIVO";

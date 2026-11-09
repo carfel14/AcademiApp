@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseIntPipe,
   Post,
 } from '@nestjs/common';
 
@@ -21,17 +22,22 @@ export class AsistenciaController {
   }
 
   @Get(':id')
-  getAsistencia(@Param('id') id: string) {
-    return this.asistenciaService.getAsistencia(+id);
+  getAsistencia(@Param('id', ParseIntPipe) id: number) {
+    return this.asistenciaService.getAsistencia(id);
+  }
+
+  @Get('sesion/:id')
+  getLista(@Param('id', ParseIntPipe) id: number) {
+    return this.asistenciaService.getLista(id);
   }
 
   @Post('sesion/:id')
   registrarAsistencias(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() data: RegistrarAsistenciasDto,
   ) {
     return this.asistenciaService.registrarAsistencias(
-      +id,
+      id,
       data,
     );
   }

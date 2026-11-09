@@ -156,7 +156,7 @@ export class PagoService {
       .query(`
         SELECT
           id_obligacion
-        FROM obligacion_pago
+        FROM obligacion_pago WITH (UPDLOCK, HOLDLOCK)
         WHERE id_obligacion = @id_obligacion;
       `);
 
@@ -193,7 +193,7 @@ export class PagoService {
   async createPago(pago: CreatePagoDto) {
     const pool = this.databaseService.getPool();
 
-    const transaction = new sql.Transaction(pool);
+    const transaction = pool.transaction();
 
     try {
       await transaction.begin();
@@ -202,7 +202,7 @@ export class PagoService {
       // OBTENER OBLIGACIÓN
       // ========================================================
 
-      const obligacionResult = await new sql.Request(transaction)
+      const obligacionResult = await transaction.request()
         .input('id_obligacion', sql.Int, pago.id_obligacion)
         .query<DatosObligacion>(`
           SELECT
@@ -214,7 +214,7 @@ export class PagoService {
             fecha_vencimiento,
             monto,
             estado
-          FROM obligacion_pago
+          FROM obligacion_pago WITH (UPDLOCK, HOLDLOCK)
           WHERE id_obligacion = @id_obligacion;
         `);
 
@@ -246,7 +246,7 @@ export class PagoService {
       // VERIFICAR ESTADO DE LA INSCRIPCIÓN
       // ========================================================
 
-      const inscripcionResult = await new sql.Request(transaction)
+      const inscripcionResult = await transaction.request()
         .input('id_inscripcion', sql.Int, obligacion.id_inscripcion)
         .query(`
           SELECT
@@ -284,7 +284,7 @@ export class PagoService {
       // OBTENER TOTAL PAGADO
       // ========================================================
 
-      const pagosResult = await new sql.Request(transaction)
+      const pagosResult = await transaction.request()
         .input('id_obligacion', sql.Int, pago.id_obligacion)
         .query(`
           SELECT
@@ -300,7 +300,9 @@ export class PagoService {
         pagosResult.recordset[0].total_pagado,
       );
 
-      const montoObligacion = Number(obligacion.monto);
+      const ajustada = await transaction.request().input('id', obligacion.id_obligacion)
+      .query('SELECT monto_ajustado FROM dbo.vw_estado_cuenta WHERE id_obligacion = @id');
+    const montoObligacion = Number(ajustada.recordset[0].monto_ajustado);
 
       const saldoPendiente =
         Math.round((montoObligacion - totalPagado) * 100) / 100;
@@ -329,7 +331,7 @@ export class PagoService {
       // CREAR PAGO
       // ========================================================
 
-      const request = new sql.Request(transaction)
+      const request = transaction.request()
         .input('id_obligacion', sql.Int, pago.id_obligacion)
         .input(
           'monto_pagado',
@@ -416,7 +418,7 @@ export class PagoService {
       if (nuevoSaldo <= 0) {
         nuevoEstado = 'PAGADA';
 
-        await new sql.Request(transaction)
+        await transaction.request()
           .input(
             'id_obligacion',
             sql.Int,
@@ -489,7 +491,7 @@ export class PagoService {
     // OBTENER OBLIGACIÓN
     // ========================================================
 
-    const obligacionResult = await new sql.Request(transaction)
+    const obligacionResult = await transaction.request()
       .input('id_obligacion', sql.Int, idObligacion)
       .query<DatosObligacion>(`
         SELECT
@@ -501,7 +503,7 @@ export class PagoService {
           fecha_vencimiento,
           monto,
           estado
-        FROM obligacion_pago
+        FROM obligacion_pago WITH (UPDLOCK, HOLDLOCK)
         WHERE id_obligacion = @id_obligacion;
       `);
 
@@ -543,7 +545,7 @@ export class PagoService {
     // OBTENER TOTAL PAGADO
     // ========================================================
 
-    const pagosResult = await new sql.Request(transaction)
+    const pagosResult = await transaction.request()
       .input('id_obligacion', sql.Int, idObligacion)
       .query(`
         SELECT
@@ -559,7 +561,9 @@ export class PagoService {
       pagosResult.recordset[0].total_pagado,
     );
 
-    const montoObligacion = Number(obligacion.monto);
+    const ajustada = await transaction.request().input('id', obligacion.id_obligacion)
+      .query('SELECT monto_ajustado FROM dbo.vw_estado_cuenta WHERE id_obligacion = @id');
+    const montoObligacion = Number(ajustada.recordset[0].monto_ajustado);
 
     const saldoPendiente =
       Math.round(
@@ -590,7 +594,7 @@ export class PagoService {
     // CREAR PAGO
     // ========================================================
 
-    const result = await new sql.Request(transaction)
+    const result = await transaction.request()
       .input('id_obligacion', sql.Int, idObligacion)
       .input(
         'monto_pagado',
@@ -642,7 +646,7 @@ export class PagoService {
     // ========================================================
 
     if (nuevoSaldo <= 0) {
-      await new sql.Request(transaction)
+      await transaction.request()
         .input(
           'id_obligacion',
           sql.Int,

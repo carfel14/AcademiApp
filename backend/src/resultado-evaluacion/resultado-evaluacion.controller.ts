@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   Param,
+  ParseIntPipe,
+  Query,
   Patch,
   Post,
 } from '@nestjs/common';
@@ -18,33 +20,33 @@ export class ResultadoEvaluacionController {
   ) {}
 
   @Get()
-  getResultados() {
-    return this.resultadoEvaluacionService.getResultados();
+  getResultados(@Query('sesion', new ParseIntPipe({ optional: true })) sesion?: number) {
+    return this.resultadoEvaluacionService.getResultados(sesion);
   }
 
   @Get(':id')
-  getResultado(@Param('id') id: string) {
-    return this.resultadoEvaluacionService.getResultado(+id);
+  getResultado(@Param('id', ParseIntPipe) id: number) {
+    return this.resultadoEvaluacionService.getResultado(id);
   }
 
   @Post('evaluacion/:id')
   createResultados(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() resultados: CreateResultadosEvaluacionDto,
   ) {
     return this.resultadoEvaluacionService.createResultados(
-      +id,
+      id,
       resultados,
     );
   }
 
   @Patch(':id')
   updateResultado(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() resultado: UpdateResultadoEvaluacionDto,
   ) {
     return this.resultadoEvaluacionService.updateResultado(
-      +id,
+      id,
       resultado,
     );
   }

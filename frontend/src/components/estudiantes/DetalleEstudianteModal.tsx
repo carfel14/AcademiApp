@@ -7,10 +7,7 @@ import {
   Clock,
   FileBadge,
   Layers,
-  CheckCircle2,
-  AlertCircle,
   XCircle,
-  Calendar,
 } from "lucide-react";
 import type { Estudiante } from "../../types/estudiante";
 import type { Inscripcion } from "../../types/inscripcion";

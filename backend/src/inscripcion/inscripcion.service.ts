@@ -340,7 +340,7 @@ export class InscripcionService {
     // TRANSACCIÓN
     // ==========================================================
 
-    const transaction = new sql.Transaction(pool);
+    const transaction = pool.transaction();
 
     try {
       await transaction.begin();
@@ -349,7 +349,7 @@ export class InscripcionService {
       // CREAR INSCRIPCIÓN
       // ========================================================
 
-      const inscripcionResult = await new sql.Request(transaction)
+      const inscripcionResult = await transaction.request()
         .input('id_estudiante', sql.Int, inscripcion.id_estudiante)
         .input('id_grupo', sql.Int, inscripcion.id_grupo)
         .input(
@@ -384,7 +384,7 @@ export class InscripcionService {
       // Matrícula vence 10/08
       // ========================================================
 
-      const matriculaResult = await new sql.Request(transaction)
+      const matriculaResult = await transaction.request()
         .input('id_inscripcion', sql.Int, idInscripcion)
         .input('tipo_obligacion', sql.VarChar(20), 'MATRICULA')
         .input('fecha_vencimiento', sql.Date, fechaInicio)
@@ -427,9 +427,7 @@ export class InscripcionService {
         'Pago automático de matrícula al realizar la inscripción.',
       );
 
-      const matriculaActualizadaResult = await new sql.Request(
-        transaction,
-      ).input('id_obligacion', sql.Int, matricula.id_obligacion).query(`
+      const matriculaActualizadaResult = await transaction.request().input('id_obligacion', sql.Int, matricula.id_obligacion).query(`
       SELECT *
       FROM obligacion_pago
       WHERE id_obligacion = @id_obligacion;
@@ -465,7 +463,7 @@ export class InscripcionService {
           ? Math.round((montoMensualidadBase + diferencia) * 100) / 100
           : montoMensualidadBase;
 
-        const mensualidadResult = await new sql.Request(transaction)
+        const mensualidadResult = await transaction.request()
           .input('id_inscripcion', sql.Int, idInscripcion)
           .input('tipo_obligacion', sql.VarChar(20), 'MENSUALIDAD')
           .input('numero_cuota', sql.Int, numeroCuota)
@@ -629,7 +627,7 @@ export class InscripcionService {
   async deleteInscripcion(id: number) {
     const pool = this.databaseService.getPool();
 
-    const transaction = new sql.Transaction(pool);
+    const transaction = pool.transaction();
 
     try {
       await transaction.begin();
@@ -638,7 +636,7 @@ export class InscripcionService {
       // VERIFICAR INSCRIPCIÓN
       // ==========================================================
 
-      const inscripcionResult = await new sql.Request(transaction).input(
+      const inscripcionResult = await transaction.request().input(
         'id_inscripcion',
         sql.Int,
         id,
@@ -675,7 +673,7 @@ export class InscripcionService {
       // bloquean la cancelación.
       // ==========================================================
 
-      const pagosMensualidadResult = await new sql.Request(transaction).input(
+      const pagosMensualidadResult = await transaction.request().input(
         'id_inscripcion',
         sql.Int,
         id,
@@ -713,7 +711,7 @@ export class InscripcionService {
       // PENDIENTE -> ANULADA
       // ==========================================================
 
-      await new sql.Request(transaction).input('id_inscripcion', sql.Int, id)
+      await transaction.request().input('id_inscripcion', sql.Int, id)
         .query(`
         UPDATE obligacion_pago
         SET estado = 'ANULADA'
@@ -726,7 +724,7 @@ export class InscripcionService {
       // CANCELAR INSCRIPCIÓN
       // ==========================================================
 
-      const cancelacionResult = await new sql.Request(transaction).input(
+      const cancelacionResult = await transaction.request().input(
         'id_inscripcion',
         sql.Int,
         id,

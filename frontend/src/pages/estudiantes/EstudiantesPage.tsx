@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { useToast } from "../../context/ToastContext";
 
@@ -37,13 +37,9 @@ function EstudiantesPage() {
   const [estudianteSeleccionado, setEstudianteSeleccionado] = useState<Estudiante | undefined>();
   const [estudianteParaDetalle, setEstudianteParaDetalle] = useState<Estudiante | undefined>();
 
-  useEffect(() => {
-    cargarDatos();
-  }, []);
-
-  async function cargarDatos() {
+  const cargarDatos = useCallback(async (refresh = true) => {
     try {
-      setLoading(true);
+      if (refresh) setLoading(true);
       const [estudiantesData, inscripcionesData] = await Promise.all([
         obtenerEstudiantes(),
         obtenerInscripciones(),
@@ -56,7 +52,13 @@ function EstudiantesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void cargarDatos(false); });
+    return () => { active = false; };
+  }, [cargarDatos]);
 
   function abrirModalCrear() {
     setEstudianteSeleccionado(undefined);
