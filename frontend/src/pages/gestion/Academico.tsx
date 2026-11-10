@@ -16,10 +16,29 @@ type Sesion = {
   id_grupo: number;
   fecha_programada: string;
   hora_inicio: string;
-  hora_fin: string;
-  tema: string | null;
-  estado_sesion: string;
+  hora_finalizacion: string;
+  tipo_sesion: "TEORICA" | "PRACTICA" | "REPASO";
+  estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA";
+  observacion: string | null;
+  total_contenidos: number;
 };
+
+type Contenido = {
+  id_programacion: number;
+  id_sesion: number;
+  id_tema: number;
+  estado_cumplimiento: "PENDIENTE" | "PARCIAL" | "CUBIERTO";
+  observacion: string | null;
+  tema: string;
+  unidad: string;
+  orden: number;
+  orden_unidad: number;
+};
+
+type Unidad = { id_unidad: number; id_plan: number; nombre: string; orden: number };
+type Tema = { id_tema: number; id_unidad: number; nombre: string; orden: number; modalidad: string };
+
+const tiposSesion = ["TEORICA", "PRACTICA", "REPASO"];
 
 type Lista = {
   sesion: Sesion;
@@ -31,7 +50,7 @@ type Lista = {
 type Evaluacion = {
   id_evaluacion: number;
   id_sesion: number;
-  tipo_evaluacion: string;
+  tipo: "EXAMEN" | "TAREA" | "PROYECTO";
   descripcion: string | null;
 };
 
@@ -45,11 +64,13 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
   const [borrar, setBorrar] = useState<Horario | null>(null);
   const [cancelar, setCancelar] = useState<Sesion | null>(null);
   const [sesion, setSesion] = useState<Sesion | "nueva" | null>(null);
+  const [contenido, setContenido] = useState<Sesion | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
   const [estado, setEstado] = useState("");
-  const activo = groups.data?.find(g => g.id_grupo === grupo)?.estado === "ACTIVO";
+  const grupoActual = groups.data?.find(g => g.id_grupo === grupo);
+  const activo = grupoActual?.estado === "EN_CURSO";
 
   async function action(work: () => Promise<void>) {
     setWorking(true);
@@ -60,7 +81,7 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
 
   return <>
     <Heading title="Horarios y sesiones" detail="Define los turnos semanales y consulta el calendario de cada grupo." />
-    <div className="work-toolbar"><Select name="Grupo" value={grupo || ""} items={(groups.data ?? []).map(g => ({ value: g.id_grupo, label: g.nombre_grupo }))}
+    <div className="work-toolbar"><Select name="Grupo" value={grupo || ""} items={(groups.data ?? []).map(g => ({ value: g.id_grupo, label: g.nombre }))}
       onChange={value => { setParams(value ? { grupo: value } : {}); setError(""); setNotice(""); }} /></div>
     <Status {...groups} retry={groups.reload} />
     {!grupo && groups.data && <p className="work-muted">{groups.data.length ? "Selecciona un grupo para ver sus horarios y sesiones." : "Crea un grupo desde Cursos para empezar."}</p>}
@@ -71,7 +92,7 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
         {horarios.data && <Table rows={horarios.data} rowKey={row => row.id_horario} empty="Este grupo todavía no tiene horarios." columns={[
           { label: "Día", cell: row => ({ MIERCOLES: "Miércoles", SABADO: "Sábado" })[row.dia_semana] ?? label(row.dia_semana) },
           { label: "Inicio", cell: row => time(row.hora_inicio) },
-          { label: "Fin", cell: row => time(row.hora_fin) },
+          { label: "Fin", cell: row => time(row.hora_finalizacion) },
           ...(admin && activo ? [{ label: "Acciones", cell: (row: Horario) => <div className="work-inline"><button className="work-link" onClick={() => setHorario(row)}>Editar</button>
             <button className="work-link" onClick={() => { setError(""); setBorrar(row); }}>Eliminar</button></div> }] : []),
         ]} />}
@@ -82,7 +103,7 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
           {activo && <div className="work-inline">
             <button className="work-secondary" onClick={() => setSesion("nueva")}>Agregar sesión</button>
             <button className="work-primary" disabled={working || !horarios.data?.length} onClick={() => void action(async () => {
-              const result = await api<{ sesiones_creadas: number }>(`/sesiones/generar/${grupo}`, "POST");
+              const result = await api<{ sesiones_creadas: number }>(`/sesiones/generar/${grupo}`, "POST", {});
               setNotice(result.sesiones_creadas ? `Sesiones creadas: ${result.sesiones_creadas}.` : "El calendario ya está al día.");
               sesiones.reload();
             })}>Generar sesiones</button>
@@ -92,14 +113,16 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
         {notice && <p className="work-notice" role="status">{notice}</p>}
         <div className="work-toolbar"><Select name="Estado" value={estado} onChange={setEstado} placeholder="Todos" items={["PROGRAMADA", "REALIZADA", "CANCELADA"].map(value => ({ value, label: label(value) }))} /></div>
         <Status {...sesiones} retry={sesiones.reload} />
-        {sesiones.data && <Table stack rows={sesiones.data.filter(s => !estado || s.estado_sesion === estado)} rowKey={row => row.id_sesion} empty="No hay sesiones en esta vista." columns={[
+        {sesiones.data && <Table stack rows={sesiones.data.filter(s => !estado || s.estado === estado)} rowKey={row => row.id_sesion} empty="No hay sesiones en esta vista." columns={[
           { label: "Fecha", cell: row => date(row.fecha_programada) },
-          { label: "Hora", cell: row => `${time(row.hora_inicio)} – ${time(row.hora_fin)}` },
-          { label: "Tema", cell: row => row.tema ?? "—" },
-          { label: "Estado", cell: row => <span className="work-tag">{label(row.estado_sesion)}</span> },
+          { label: "Hora", cell: row => `${time(row.hora_inicio)} – ${time(row.hora_finalizacion)}` },
+          { label: "Tipo", cell: row => label(row.tipo_sesion) },
+          { label: "Contenido", cell: row => row.total_contenidos ? `${row.total_contenidos} tema(s)` : "—" },
+          { label: "Estado", cell: row => <span className="work-tag">{label(row.estado)}</span> },
           { label: "Acciones", cell: row => <div className="work-inline">
             <Link className="work-link" to={`/asistencia?grupo=${grupo}&sesion=${row.id_sesion}`}>Asistencia</Link>
-            {row.estado_sesion === "PROGRAMADA" && <>
+            <button className="work-link" onClick={() => setContenido(row)}>Contenido</button>
+            {row.estado === "PROGRAMADA" && <>
               <button className="work-link" onClick={() => setSesion(row)}>Editar</button>
               <button className="work-link" onClick={() => { setError(""); setCancelar(row); }}>Cancelar</button>
             </>}
@@ -137,17 +160,61 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
       <EditForm fields={[
         { name: "fecha_programada", label: "Fecha", type: "date" },
         { name: "hora_inicio", label: "Hora de inicio", type: "time" },
-        { name: "hora_fin", label: "Hora de fin", type: "time" },
-        { name: "tema", label: "Tema", max: 200, required: false },
-      ]} initial={sesion === "nueva" ? {} : { ...sesion, hora_inicio: time(sesion.hora_inicio), hora_fin: time(sesion.hora_fin) }} onSave={async data => {
-        if (String(data.hora_inicio) >= String(data.hora_fin)) throw new Error("La hora de fin debe ser posterior a la de inicio.");
+        { name: "hora_finalizacion", label: "Hora de finalización", type: "time" },
+        { name: "tipo_sesion", label: "Tipo de sesión", options: tiposSesion.map(value => ({ value, label: label(value) })) },
+        { name: "observacion", label: "Observación", type: "textarea", max: 500, required: false },
+      ]} initial={sesion === "nueva" ? { tipo_sesion: "TEORICA" } : { ...sesion, fecha_programada: date(sesion.fecha_programada), hora_inicio: time(sesion.hora_inicio), hora_finalizacion: time(sesion.hora_finalizacion) }} onSave={async data => {
+        if (String(data.hora_inicio) >= String(data.hora_finalizacion)) throw new Error("La hora de finalización debe ser posterior a la de inicio.");
         if (sesion === "nueva") await api("/sesiones", "POST", { ...data, id_grupo: grupo });
         else await api(`/sesiones/${sesion.id_sesion}`, "PATCH", data);
         setSesion(null);
         sesiones.reload();
       }} />
     </Modal>}
+    {contenido && grupoActual && <Modal isOpen onClose={() => { setContenido(null); sesiones.reload(); }} title={`Contenido de la sesión del ${date(contenido.fecha_programada)}`}>
+      <ContenidoSesion sesion={contenido} idPlan={grupoActual.id_plan} editable={contenido.estado !== "CANCELADA"} />
+    </Modal>}
   </>;
+}
+
+/** PROGRAMACION_CONTENIDO: temas del plan de estudio cubiertos en una sesión. */
+function ContenidoSesion({ sesion, idPlan, editable }: { sesion: Sesion; idPlan: number; editable: boolean }) {
+  const contenidos = useData<Contenido[]>(`/sesiones/${sesion.id_sesion}/contenidos`);
+  const unidades = useData<Unidad[]>(`/planes/unidades?padre=${idPlan}`);
+  const temas = useData<Tema[]>("/planes/temas");
+  const [error, setError] = useState("");
+  const delPlan = new Set((unidades.data ?? []).map(u => u.id_unidad));
+  const usados = new Set((contenidos.data ?? []).map(c => c.id_tema));
+  const disponibles = (temas.data ?? []).filter(t => delPlan.has(t.id_unidad) && !usados.has(t.id_tema));
+  const unidad = (id: number) => unidades.data?.find(u => u.id_unidad === id)?.nombre ?? "";
+
+  async function run(work: () => Promise<unknown>) {
+    setError("");
+    try { await work(); contenidos.reload(); } catch (error) { setError(message(error)); }
+  }
+
+  return <div className="grid gap-4">
+    <Status {...contenidos} retry={contenidos.reload} />
+    {contenidos.data && <Table rows={contenidos.data} rowKey={c => c.id_programacion} empty="Esta sesión todavía no tiene temas programados." columns={[
+      { label: "Unidad", cell: c => c.unidad },
+      { label: "Tema", cell: c => c.tema },
+      { label: "Cumplimiento", cell: c => editable
+        ? <select aria-label={`Cumplimiento de ${c.tema}`} value={c.estado_cumplimiento}
+            onChange={e => void run(() => api(`/sesiones/contenidos/${c.id_programacion}`, "PATCH", { estado_cumplimiento: e.target.value }))}>
+            {["PENDIENTE", "PARCIAL", "CUBIERTO"].map(v => <option key={v} value={v}>{label(v)}</option>)}
+          </select>
+        : label(c.estado_cumplimiento) },
+      ...(editable ? [{ label: "Acción", cell: (c: Contenido) => <button className="work-link" onClick={() => void run(() => api(`/sesiones/contenidos/${c.id_programacion}`, "DELETE"))}>Quitar</button> }] : []),
+    ]} />}
+    <Status error={error} />
+    {editable && <EditForm key={usados.size} saveLabel="Agregar tema" fields={[
+      { name: "id_tema", label: "Tema del plan de estudio", options: disponibles.map(t => ({ value: t.id_tema, label: `${unidad(t.id_unidad)} · ${t.nombre}` })) },
+    ]} onSave={async data => {
+      await api(`/sesiones/${sesion.id_sesion}/contenidos`, "POST", data);
+      contenidos.reload();
+    }} />}
+    {editable && temas.data && unidades.data && !disponibles.length && <p className="work-muted">No quedan temas del plan por agregar. Puedes crearlos en Planes de estudio.</p>}
+  </div>;
 }
 
 export function AsistenciaPage({ evaluaciones = false }: { evaluaciones?: boolean }) {
@@ -161,10 +228,10 @@ export function AsistenciaPage({ evaluaciones = false }: { evaluaciones?: boolea
     <Heading title={evaluaciones ? "Evaluaciones" : "Asistencia"} detail={evaluaciones ? "Crea evaluaciones y registra las calificaciones por sesión." : "Consulta la lista y registra la asistencia de cada sesión."} />
     <div className="work-toolbar">
       <Select name="Grupo" value={grupo || ""} onChange={value => setParams(value ? { grupo: value } : {})}
-        items={(groups.data ?? []).map(g => ({ value: g.id_grupo, label: g.nombre_grupo }))} />
+        items={(groups.data ?? []).map(g => ({ value: g.id_grupo, label: g.nombre }))} />
       <Select name="Sesión" value={id || ""} onChange={value => setParams(value ? { grupo: String(grupo), sesion: value } : { grupo: String(grupo) })}
         placeholder={sesiones.data?.length === 0 ? "El grupo no tiene sesiones" : "Selecciona una sesión"}
-        items={(sesiones.data ?? []).map(s => ({ value: s.id_sesion, label: `${date(s.fecha_programada)} · ${time(s.hora_inicio)}${s.tema ? ` · ${s.tema}` : ""}` }))} />
+        items={(sesiones.data ?? []).map(s => ({ value: s.id_sesion, label: `${date(s.fecha_programada)} · ${time(s.hora_inicio)} · ${label(s.tipo_sesion)}` }))} />
     </div>
     <Status {...groups} retry={groups.reload} /><Status {...sesiones} retry={sesiones.reload} /><Status {...lista} retry={lista.reload} />
     {!id && !sesiones.loading && <p className="work-muted">{grupo && !sesiones.data?.length ? <Link className="work-link" to={`/calendario?grupo=${grupo}`}>Ir al calendario del grupo</Link> : "Selecciona una sesión para continuar."}</p>}
@@ -175,7 +242,7 @@ export function AsistenciaPage({ evaluaciones = false }: { evaluaciones?: boolea
 }
 
 const estados: Record<string, string> = {
-  PRESENTE: "Presente", AUSENTE: "Ausente", JUSTIFICADO: "Justificado", SUSPENDIDO_POR_MORA: "Suspendido por mora",
+  PRESENTE: "Presente", AUSENTE: "Ausente", JUSTIFICADA: "Justificada", SUSPENDIDO_POR_MORA: "Suspendido por mora",
 };
 
 function ListaAsistencia({ lista, onChange }: { lista: Lista; onChange: () => void }) {
@@ -183,7 +250,7 @@ function ListaAsistencia({ lista, onChange }: { lista: Lista; onChange: () => vo
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const id = lista.sesion.id_sesion;
-  const editable = lista.sesion.estado_sesion !== "CANCELADA";
+  const editable = lista.sesion.estado !== "CANCELADA";
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -201,7 +268,7 @@ function ListaAsistencia({ lista, onChange }: { lista: Lista; onChange: () => vo
   }
 
   return <section className="work-section">
-    <div className="work-section-title"><h2>Lista de asistencia</h2><span className="work-tag">{label(lista.sesion.estado_sesion)}</span></div>
+    <div className="work-section-title"><h2>Lista de asistencia</h2><span className="work-tag">{label(lista.sesion.estado)}</span></div>
     <form onSubmit={save}>
       <Table stack rows={lista.estudiantes} rowKey={e => e.id_inscripcion} empty="Esta sesión no tiene estudiantes en la lista." columns={[
         { label: "Estudiante", cell: e => `${e.nombres} ${e.apellidos}` },
@@ -210,13 +277,13 @@ function ListaAsistencia({ lista, onChange }: { lista: Lista; onChange: () => vo
           <option value="">Selecciona estado</option>
           {Object.entries(estados).filter(([estado]) => estado !== "SUSPENDIDO_POR_MORA" || e.tiene_mora || e.estado_asistencia === estado).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
         </select> : estados[e.estado_asistencia ?? ""] ?? "—" },
-        { label: "Observación", cell: e => editable ? <input aria-label={`Observación de ${e.nombres} ${e.apellidos}`} name={`nota-${e.id_inscripcion}`} defaultValue={e.observacion ?? ""} maxLength={5000} /> : e.observacion ?? "—" },
+        { label: "Observación", cell: e => editable ? <input aria-label={`Observación de ${e.nombres} ${e.apellidos}`} name={`nota-${e.id_inscripcion}`} defaultValue={e.observacion ?? ""} maxLength={500} /> : e.observacion ?? "—" },
       ]} />
       <Status error={error} />{notice && <p className="work-notice" role="status">{notice}</p>}
       <div className="work-inline mt-4">
         {editable && Boolean(lista.estudiantes.length) && <button className="work-primary" disabled={busy}>Guardar asistencia</button>}
         <Link className="work-secondary" to={`/evaluaciones?grupo=${lista.sesion.id_grupo}&sesion=${id}`}>Ver evaluaciones</Link>
-        {lista.sesion.estado_sesion === "PROGRAMADA" && <button type="button" className="work-secondary" disabled={busy} onClick={async () => {
+        {lista.sesion.estado === "PROGRAMADA" && <button type="button" className="work-secondary" disabled={busy} onClick={async () => {
           setError(""); setNotice(""); setBusy(true);
           try { await api(`/sesiones/${id}/finalizar`, "PATCH"); setNotice("Sesión finalizada."); onChange(); }
           catch (error) { setError(message(error)); } finally { setBusy(false); }
@@ -233,7 +300,7 @@ function EvaluacionesSesion({ lista, onChange }: { lista: Lista; onChange: () =>
   const [edicion, setEdicion] = useState<Evaluacion | "nueva" | null>(null);
   const [calificar, setCalificar] = useState<Evaluacion | null>(null);
   const [nota, setNota] = useState<ResultadoEvaluacionItem | null>(null);
-  const programada = lista.sesion.estado_sesion === "PROGRAMADA";
+  const programada = lista.sesion.estado === "PROGRAMADA";
   const asistieron = lista.estudiantes.filter(e => e.estado_asistencia === "PRESENTE");
   const asistenciaCompleta = lista.estudiantes.length > 0 && lista.estudiantes.every(e => e.estado_asistencia);
   return <>
@@ -242,7 +309,7 @@ function EvaluacionesSesion({ lista, onChange }: { lista: Lista; onChange: () =>
         {programada && <button className="work-primary" onClick={() => setEdicion("nueva")}>Crear evaluación</button>}</div>
       <Status {...evaluaciones} retry={evaluaciones.reload} /><Status {...resultados} retry={resultados.reload} />
       {evaluaciones.data && <Table rows={evaluaciones.data.filter(e => e.id_sesion === id)} rowKey={e => e.id_evaluacion} columns={[
-        { label: "Tipo", cell: e => e.tipo_evaluacion },
+        { label: "Tipo", cell: e => label(e.tipo) },
         { label: "Descripción", cell: e => e.descripcion ?? "—" },
         { label: "Acciones", cell: e => <div className="work-inline">
           {programada && <button className="work-link" onClick={() => setEdicion(e)}>Editar</button>}
@@ -255,19 +322,19 @@ function EvaluacionesSesion({ lista, onChange }: { lista: Lista; onChange: () =>
     {resultados.data && <section className="work-section"><h2>Calificaciones</h2>
       <Table rows={resultados.data.filter(r => r.id_sesion === id)} rowKey={r => r.id_resultado} columns={[
         { label: "Estudiante", cell: r => `${r.nombres} ${r.apellidos}` },
-        { label: "Evaluación", cell: r => r.tipo_evaluacion },
+        { label: "Evaluación", cell: r => r.tipo ? label(r.tipo) : "—" },
         { label: "Nota", numeric: true, cell: r => r.nota ?? "—" },
         { label: "Estado", cell: r => label(r.estado_resultado) },
-        { label: "Acción", cell: r => r.estado_resultado === "CALIFICADO" && lista.sesion.estado_sesion !== "CANCELADA" ? <button className="work-link" onClick={() => setNota(r)}>Editar nota</button> : "—" },
+        { label: "Acción", cell: r => r.estado_resultado === "CALIFICADO" && lista.sesion.estado !== "CANCELADA" ? <button className="work-link" onClick={() => setNota(r)}>Editar nota</button> : "—" },
       ]} />
     </section>}
     {edicion && <Modal isOpen onClose={() => setEdicion(null)} title={edicion === "nueva" ? "Crear evaluación" : "Editar evaluación"}>
       <EditForm fields={[
-        { name: "tipo_evaluacion", label: "Tipo de evaluación", max: 50 },
-        { name: "descripcion", label: "Descripción", type: "textarea", required: false },
+        { name: "tipo", label: "Tipo de evaluación", options: ["EXAMEN", "TAREA", "PROYECTO"].map(value => ({ value, label: label(value) })) },
+        { name: "descripcion", label: "Descripción", type: "textarea", max: 500, required: false },
       ]} initial={edicion === "nueva" ? {} : edicion} onSave={async data => {
         await api(edicion === "nueva" ? "/evaluaciones" : `/evaluaciones/${edicion.id_evaluacion}`,
-          edicion === "nueva" ? "POST" : "PATCH", { ...data, id_sesion: id });
+          edicion === "nueva" ? "POST" : "PATCH", edicion === "nueva" ? { ...data, id_sesion: id } : data);
         setEdicion(null); evaluaciones.reload();
       }} />
     </Modal>}

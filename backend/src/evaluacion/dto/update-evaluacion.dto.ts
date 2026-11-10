@@ -1,18 +1,6 @@
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { OmitType, PartialType } from '@nestjs/mapped-types';
+import { CreateEvaluacionDto } from './create-evaluacion.dto';
 
-export class UpdateEvaluacionDto {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
-  tipo_evaluacion?: string;
-
-  @IsOptional()
-  @IsString()
-  descripcion?: string;
-}
+export class UpdateEvaluacionDto extends PartialType(
+  OmitType(CreateEvaluacionDto, ['id_sesion'] as const),
+) {}

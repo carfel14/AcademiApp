@@ -160,7 +160,7 @@ function ProfesoresPage() {
   const profesoresFiltrados = profesores.filter((p) => {
     const termino = busqueda.trim().toLowerCase();
     const nombreCompleto = `${p.nombres} ${p.apellidos}`.toLowerCase();
-    const especialidad = (p.especialidad || "").toLowerCase();
+    const especialidad = p.especialidades.map((e) => e.nombre).join(" ").toLowerCase();
 
     return nombreCompleto.includes(termino) || especialidad.includes(termino);
   });

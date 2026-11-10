@@ -15,9 +15,7 @@ import { UpdateCertificadoDto } from './dto/update-certificado.dto';
 
 @Controller('certificados')
 export class CertificadoController {
-  constructor(
-    private readonly certificadoService: CertificadoService,
-  ) {}
+  constructor(private readonly certificadoService: CertificadoService) {}
 
   // ============================================================
   // OBTENER TODOS
@@ -33,9 +31,7 @@ export class CertificadoController {
   // ============================================================
 
   @Get(':id')
-  getCertificado(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  getCertificado(@Param('id', ParseIntPipe) id: number) {
     return this.certificadoService.getCertificado(id);
   }
 
@@ -44,9 +40,7 @@ export class CertificadoController {
   // ============================================================
 
   @Post()
-  createCertificado(
-    @Body() data: CreateCertificadoDto,
-  ) {
+  createCertificado(@Body() data: CreateCertificadoDto) {
     return this.certificadoService.createCertificado(data);
   }
 
@@ -67,9 +61,7 @@ export class CertificadoController {
   // ============================================================
 
   @Delete(':id')
-  deleteCertificado(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  deleteCertificado(@Param('id', ParseIntPipe) id: number) {
     return this.certificadoService.deleteCertificado(id);
   }
 }

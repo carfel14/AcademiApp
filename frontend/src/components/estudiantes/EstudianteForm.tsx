@@ -19,6 +19,8 @@ function EstudianteForm({ estudiante, onSubmit }: EstudianteFormProps) {
   } = useForm<EstudianteFormData>({
     resolver: zodResolver(estudianteSchema),
     defaultValues: {
+      codigo: "",
+      canal_preferido: "WHATSAPP",
       nombres: "",
       apellidos: "",
       fecha_nacimiento: "",
@@ -29,6 +31,8 @@ function EstudianteForm({ estudiante, onSubmit }: EstudianteFormProps) {
 
   useEffect(() => {
     reset({
+      codigo: estudiante?.codigo ?? "",
+      canal_preferido: estudiante?.canal_preferido ?? "WHATSAPP",
       nombres: estudiante?.nombres ?? "",
       apellidos: estudiante?.apellidos ?? "",
       fecha_nacimiento: estudiante?.fecha_nacimiento ?? "",
@@ -125,6 +129,24 @@ function EstudianteForm({ estudiante, onSubmit }: EstudianteFormProps) {
             className="w-full rounded-md border border-gray-300 px-3 py-2.5 font-normal" />
           {errors.email && <span className="text-xs text-red-600">{errors.email.message}</span>}
         </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="grid gap-2 text-sm font-semibold text-gray-800">
+            Código
+            <input {...register("codigo")} maxLength={20} placeholder="Automático (EST-000000)"
+              className="w-full rounded-md border border-gray-300 px-3 py-2.5 font-normal" />
+            {errors.codigo && <span className="text-xs text-red-600">{errors.codigo.message}</span>}
+          </label>
+          <label className="grid gap-2 text-sm font-semibold text-gray-800">
+            Canal preferido para recordatorios
+            <select {...register("canal_preferido")}
+              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2.5 font-normal">
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="EMAIL">Correo electrónico</option>
+              <option value="SMS">SMS</option>
+            </select>
+            {errors.canal_preferido && <span className="text-xs text-red-600">{errors.canal_preferido.message}</span>}
+          </label>
+        </div>
       </div>
 
       <div className="flex items-center justify-end border-t border-gray-100 bg-gray-50 px-6 py-4">

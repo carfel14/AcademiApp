@@ -10,7 +10,7 @@ import { UpdateHorarioDto } from './dto/update-horario.dto';
 
 const columns = `id_horario, id_grupo, dia_semana,
   CONVERT(VARCHAR(5), hora_inicio, 108) AS hora_inicio,
-  CONVERT(VARCHAR(5), hora_fin, 108) AS hora_fin`;
+  CONVERT(VARCHAR(5), hora_finalizacion, 108) AS hora_finalizacion`;
 
 @Injectable()
 export class HorarioClaseService {
@@ -20,7 +20,7 @@ export class HorarioClaseService {
     return (
       await this.databaseService.getPool().request().input('grupo', idGrupo)
         .query(`
-      SELECT ${columns} FROM horario_clase WHERE id_grupo = @grupo
+      SELECT ${columns} FROM HORARIO_CLASE WHERE id_grupo = @grupo
       ORDER BY CHARINDEX(dia_semana, 'LUNES MARTES MIERCOLES JUEVES VIERNES SABADO DOMINGO'), hora_inicio
     `)
     ).recordset;
@@ -44,17 +44,12 @@ export class HorarioClaseService {
   async deleteHorario(id: number) {
     const horario = await this.getHorario(id);
     return this.databaseService.transaction(async (tx) => {
+      // SESION_CLASE no referencia al horario: las sesiones ya generadas se conservan.
       await this.bloquearGrupo(tx, horario.id_grupo);
-      const result = await tx.request().input('id', id).query(`
-        SELECT TOP (1) id_sesion FROM sesion_clase WHERE id_horario = @id
-      `);
-      if (result.recordset.length) {
-        throw new BadRequestException('El horario tiene sesiones asociadas.');
-      }
       const deleted = await tx
         .request()
         .input('id', id)
-        .query('DELETE horario_clase WHERE id_horario = @id');
+        .query('DELETE HORARIO_CLASE WHERE id_horario = @id');
       if (!deleted.rowsAffected[0])
         throw new NotFoundException('El horario no existe.');
       return { mensaje: 'Horario eliminado.' };
@@ -68,10 +63,10 @@ export class HorarioClaseService {
       if (id && !actual) throw new NotFoundException('El horario no existe.');
       const dia = cambios.dia_semana ?? actual?.dia_semana;
       const inicio = cambios.hora_inicio ?? actual?.hora_inicio;
-      const fin = cambios.hora_fin ?? actual?.hora_fin;
+      const fin = cambios.hora_finalizacion ?? actual?.hora_finalizacion;
       if (inicio >= fin) {
         throw new BadRequestException(
-          'La hora de fin debe ser posterior a la de inicio.',
+          'La hora de finalización debe ser posterior a la de inicio.',
         );
       }
 
@@ -83,10 +78,10 @@ export class HorarioClaseService {
         .input('inicio', inicio)
         .input('fin', fin);
       const conflicto = await request.query(`
-        SELECT TOP (1) id_horario FROM horario_clase
+        SELECT TOP (1) id_horario FROM HORARIO_CLASE
         WHERE id_grupo = @grupo AND dia_semana = @dia
           AND (@id IS NULL OR id_horario <> @id)
-          AND hora_inicio < CAST(@fin AS time) AND hora_fin > CAST(@inicio AS time)
+          AND hora_inicio < CAST(@fin AS time) AND hora_finalizacion > CAST(@inicio AS time)
       `);
       if (conflicto.recordset.length) {
         throw new BadRequestException(
@@ -98,15 +93,15 @@ export class HorarioClaseService {
         await request.query(`
         IF @id IS NULL
         BEGIN
-          INSERT INTO horario_clase (id_grupo, dia_semana, hora_inicio, hora_fin)
+          INSERT INTO HORARIO_CLASE (id_grupo, dia_semana, hora_inicio, hora_finalizacion)
           VALUES (@grupo, @dia, CAST(@inicio AS time), CAST(@fin AS time));
           SET @id = SCOPE_IDENTITY();
         END
         ELSE
-          UPDATE horario_clase SET dia_semana = @dia,
-            hora_inicio = CAST(@inicio AS time), hora_fin = CAST(@fin AS time)
+          UPDATE HORARIO_CLASE SET dia_semana = @dia,
+            hora_inicio = CAST(@inicio AS time), hora_finalizacion = CAST(@fin AS time)
           WHERE id_horario = @id;
-        SELECT ${columns} FROM horario_clase WHERE id_horario = @id;
+        SELECT ${columns} FROM HORARIO_CLASE WHERE id_horario = @id;
       `)
       ).recordset[0];
     });
@@ -114,17 +109,17 @@ export class HorarioClaseService {
 
   private async bloquearGrupo(tx: sql.Transaction, id: number) {
     const { recordset } = await tx.request().input('id', id).query(`
-      SELECT estado FROM grupo WITH (UPDLOCK, HOLDLOCK) WHERE id_grupo = @id
+      SELECT estado FROM GRUPO WITH (UPDLOCK, HOLDLOCK) WHERE id_grupo = @id
     `);
     if (!recordset.length) throw new NotFoundException('El grupo no existe.');
-    if (recordset[0].estado !== 'ACTIVO')
-      throw new BadRequestException('El grupo debe estar activo.');
+    if (recordset[0].estado !== 'EN_CURSO')
+      throw new BadRequestException('El grupo debe estar en curso.');
   }
 
   private async buscar(id: number, request: sql.Request) {
     return (
       await request.input('id', id).query(`
-      SELECT ${columns} FROM horario_clase WHERE id_horario = @id
+      SELECT ${columns} FROM HORARIO_CLASE WHERE id_horario = @id
     `)
     ).recordset[0];
   }

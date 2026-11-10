@@ -12,9 +12,7 @@ import { RegistrarAsistenciasDto } from './dto/registrar-asistencias.dto';
 
 @Controller('asistencias')
 export class AsistenciaController {
-  constructor(
-    private readonly asistenciaService: AsistenciaService,
-  ) {}
+  constructor(private readonly asistenciaService: AsistenciaService) {}
 
   @Get()
   getAsistencias() {
@@ -36,9 +34,6 @@ export class AsistenciaController {
     @Param('id', ParseIntPipe) id: number,
     @Body() data: RegistrarAsistenciasDto,
   ) {
-    return this.asistenciaService.registrarAsistencias(
-      id,
-      data,
-    );
+    return this.asistenciaService.registrarAsistencias(id, data);
   }
 }

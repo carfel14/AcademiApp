@@ -12,11 +12,11 @@ export default function MainLayout({ usuario, onLogout }: { usuario: Usuario; on
         aria-controls="app-navigation" onClick={() => setMenu(!menu)}>{menu ? <X size={18} /> : <Menu size={18} />}<span>Menú</span></button>
       <span className="app-top-title">Academia Silvia</span>
       <div className="app-account">
-        <span>{usuario.nombres} {usuario.apellidos}</span>
+        <span>{usuario.profesor ?? usuario.usuario}<small className="block work-muted">{usuario.roles.join(", ")}</small></span>
         <button className="work-link" onClick={() => void onLogout().catch(() => undefined)}>Salir</button>
       </div>
     </header>
-    <Sidebar rol={usuario.rol} open={menu} onNavigate={() => setMenu(false)} />
+    <Sidebar roles={usuario.roles} open={menu} onNavigate={() => setMenu(false)} />
     <main className="app-sheet"><Outlet /></main>
   </div>;
 }

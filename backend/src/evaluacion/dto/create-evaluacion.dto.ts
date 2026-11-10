@@ -1,21 +1,16 @@
-import {
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
+
+export const TIPOS_EVALUACION = ['EXAMEN', 'TAREA', 'PROYECTO'];
 
 export class CreateEvaluacionDto {
   @IsInt()
   id_sesion!: number;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
-  tipo_evaluacion!: string;
+  @IsIn(TIPOS_EVALUACION)
+  tipo!: string;
 
   @IsOptional()
   @IsString()
-  descripcion?: string;
+  @MaxLength(500)
+  descripcion?: string | null;
 }

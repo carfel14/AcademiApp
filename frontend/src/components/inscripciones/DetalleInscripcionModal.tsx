@@ -19,21 +19,21 @@ function DetalleInscripcionModal({ inscripcion, onClose, onSave }: DetalleInscri
             <div>
               <p className="text-xs text-gray-500 font-semibold uppercase">Estudiante</p>
               <p className="text-sm font-bold text-gray-900">
-                {inscripcion.nombre_estudiante} {inscripcion.apellido_estudiante}
+                {inscripcion.nombres} {inscripcion.apellidos}
               </p>
             </div>
           </div>
 
           <span
             className={`rounded-full px-3 py-1 text-xs font-bold ${
-              inscripcion.estado_inscripcion === "ACTIVA"
+              inscripcion.estado === "ACTIVA"
                 ? "bg-emerald-100 text-emerald-800"
-                : inscripcion.estado_inscripcion === "FINALIZADA"
+                : inscripcion.estado === "FINALIZADA"
                 ? "bg-blue-100 text-blue-800"
                 : "bg-rose-100 text-rose-800"
             }`}
           >
-            {inscripcion.estado_inscripcion}
+            {inscripcion.estado}
           </span>
         </div>
 
@@ -42,7 +42,7 @@ function DetalleInscripcionModal({ inscripcion, onClose, onSave }: DetalleInscri
             <p className="text-gray-500 font-medium">Curso:</p>
             <p className="font-semibold text-gray-800 text-sm mt-0.5 flex items-center gap-1.5">
               <BookOpen className="h-4 w-4 text-blue-800" />
-              {inscripcion.nombre_curso}
+              {inscripcion.curso}
             </p>
           </div>
 
@@ -50,7 +50,7 @@ function DetalleInscripcionModal({ inscripcion, onClose, onSave }: DetalleInscri
             <p className="text-gray-500 font-medium">Grupo asignado:</p>
             <p className="font-semibold text-gray-800 text-sm mt-0.5 flex items-center gap-1.5">
               <Layers className="h-4 w-4 text-blue-800" />
-              {inscripcion.nombre_grupo}
+              {inscripcion.grupo}
             </p>
           </div>
 
@@ -89,7 +89,7 @@ function DetalleInscripcionModal({ inscripcion, onClose, onSave }: DetalleInscri
           Cerrar
         </button>
       </div>
-      {inscripcion.estado_inscripcion === "ACTIVA" && <EditForm
+      {inscripcion.estado === "ACTIVA" && <EditForm
         key={inscripcion.id_inscripcion}
         fields={[{ name: "observacion", label: "Editar observación", type: "textarea", required: false }]}
         initial={{ observacion: inscripcion.observacion ?? null }}

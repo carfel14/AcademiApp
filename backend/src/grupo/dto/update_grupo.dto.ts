@@ -1,24 +1,7 @@
-import {
-  IsDateString,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Min,
-} from 'class-validator';
+import { OmitType, PartialType } from '@nestjs/mapped-types';
+import { CreateGrupoDto } from './create-grupo.dto';
 
-export class UpdateGrupoDto {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  nombre_grupo?: string;
-
-  @IsOptional()
-  @IsDateString()
-  fecha_inicio?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  duracion_meses?: number;
-}
+// El plan de estudio de un grupo no cambia después de crearlo.
+export class UpdateGrupoDto extends PartialType(
+  OmitType(CreateGrupoDto, ['id_plan'] as const),
+) {}

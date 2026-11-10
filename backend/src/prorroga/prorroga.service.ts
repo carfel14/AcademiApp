@@ -3,395 +3,160 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-
+import * as sql from 'mssql';
+import { fechaISO } from 'src/database/consultas';
 import { DatabaseService } from 'src/database/database.service';
-
 import { CreateProrrogaDto } from './dto/create-prorroga.dto';
 import { UpdateProrrogaDto } from './dto/update-prorroga.dto';
 
+const SELECT_PRORROGA = `
+  SELECT p.*, o.id_inscripcion, o.tipo, o.numero_cuota, o.periodo,
+    o.fecha_vencimiento, o.monto, o.estado AS estado_obligacion
+  FROM PRORROGA p
+  JOIN OBLIGACION_PAGO o ON o.id_obligacion = p.id_obligacion`;
+
+/**
+ * El script permite varias prórrogas por obligación; vw_estado_cuenta toma la
+ * mayor fecha_finalizacion como vencimiento efectivo.
+ */
 @Injectable()
 export class ProrrogaService {
   constructor(private readonly databaseService: DatabaseService) {}
 
-  // ============================================================
-  // OBTENER TODAS
-  // ============================================================
-
   async getProrrogas() {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().query(`
-      SELECT
-        p.id_prorroga,
-        p.id_obligacion,
-        p.fecha_inicio,
-        p.fecha_fin,
-        p.observacion,
-
-        o.id_inscripcion,
-        o.tipo_obligacion,
-        o.numero_cuota,
-        o.periodo,
-        o.fecha_vencimiento,
-        o.monto,
-        o.estado AS estado_obligacion
-
-      FROM prorroga p
-
-      INNER JOIN obligacion_pago o
-        ON p.id_obligacion = o.id_obligacion
-
-      ORDER BY
-        p.fecha_inicio DESC,
-        p.id_prorroga DESC;
+    const result = await this.databaseService.getPool().request().query(`
+      ${SELECT_PRORROGA} ORDER BY p.fecha_inicio DESC, p.id_prorroga DESC
     `);
-
     return result.recordset;
   }
 
-  // ============================================================
-  // OBTENER UNA
-  // ============================================================
-
   async getProrroga(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id_prorroga', id).query(`
-        SELECT
-          p.id_prorroga,
-          p.id_obligacion,
-          p.fecha_inicio,
-          p.fecha_fin,
-          p.observacion,
-
-          o.id_inscripcion,
-          o.tipo_obligacion,
-          o.numero_cuota,
-          o.periodo,
-          o.fecha_vencimiento,
-          o.monto,
-          o.estado AS estado_obligacion
-
-        FROM prorroga p
-
-        INNER JOIN obligacion_pago o
-          ON p.id_obligacion = o.id_obligacion
-
-        WHERE p.id_prorroga = @id_prorroga;
-      `);
-
-    if (result.recordset.length === 0) {
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id)
+      .query(`${SELECT_PRORROGA} WHERE p.id_prorroga = @id`);
+    if (!result.recordset.length)
       throw new NotFoundException(
         `La prórroga con id ${id} no fue encontrada.`,
       );
-    }
-
     return result.recordset[0];
   }
 
-  // ============================================================
-  // OBTENER POR OBLIGACIÓN
-  // ============================================================
-
-  async getProrrogaPorObligacion(idObligacion: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id_obligacion', idObligacion)
-      .query(`
-        SELECT
-          p.id_prorroga,
-          p.id_obligacion,
-          p.fecha_inicio,
-          p.fecha_fin,
-          p.observacion,
-
-          o.id_inscripcion,
-          o.tipo_obligacion,
-          o.numero_cuota,
-          o.periodo,
-          o.fecha_vencimiento,
-          o.monto,
-          o.estado AS estado_obligacion
-
-        FROM prorroga p
-
-        INNER JOIN obligacion_pago o
-          ON p.id_obligacion = o.id_obligacion
-
-        WHERE p.id_obligacion = @id_obligacion;
-      `);
-
-    return result.recordset[0] ?? null;
+  async getProrrogasPorObligacion(idObligacion: number) {
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, idObligacion)
+      .query(
+        `${SELECT_PRORROGA} WHERE p.id_obligacion = @id ORDER BY p.fecha_inicio`,
+      );
+    return result.recordset;
   }
 
-  // ============================================================
-  // CREAR
-  // ============================================================
-
   async createProrroga(prorroga: CreateProrrogaDto) {
-    const pool = this.databaseService.getPool();
-
-    // ----------------------------------------------------------
-    // Validar fechas
-    // ----------------------------------------------------------
-
-    if (prorroga.fecha_inicio > prorroga.fecha_fin) {
-      throw new BadRequestException(
-        'La fecha de inicio no puede ser posterior a la fecha de fin.',
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Verificar obligación
-    // ----------------------------------------------------------
-
-    const obligacionResult = await pool
-      .request()
-      .input('id_obligacion', prorroga.id_obligacion).query(`
-        SELECT
-          id_obligacion,
-          id_inscripcion,
-          tipo_obligacion,
-          numero_cuota,
-          periodo,
-          fecha_vencimiento,
-          monto,
-          estado
-        FROM obligacion_pago
-        WHERE id_obligacion = @id_obligacion;
-      `);
-
-    if (obligacionResult.recordset.length === 0) {
+    const obligacion = (
+      await this.databaseService
+        .getPool()
+        .request()
+        .input('id', sql.Int, prorroga.id_obligacion)
+        .query(
+          'SELECT fecha_vencimiento, estado FROM OBLIGACION_PAGO WHERE id_obligacion = @id',
+        )
+    ).recordset[0];
+    if (!obligacion)
       throw new NotFoundException(
         `La obligación con id ${prorroga.id_obligacion} no fue encontrada.`,
       );
-    }
+    this.validar(
+      obligacion,
+      prorroga.fecha_inicio,
+      prorroga.fecha_finalizacion,
+    );
 
-    const obligacion = obligacionResult.recordset[0];
-
-    // ----------------------------------------------------------
-    // Una obligación solo puede tener una prórroga
-    // ----------------------------------------------------------
-
-    const prorrogaExistente = await pool
+    // PRORROGA tiene trigger de bitácora: se usa SCOPE_IDENTITY() en lugar de OUTPUT.
+    const result = await this.databaseService
+      .getPool()
       .request()
-      .input('id_obligacion', prorroga.id_obligacion).query(`
-        SELECT id_prorroga
-        FROM prorroga
-        WHERE id_obligacion = @id_obligacion;
+      .input('id', sql.Int, prorroga.id_obligacion)
+      .input('inicio', sql.VarChar(10), prorroga.fecha_inicio.slice(0, 10))
+      .input('fin', sql.VarChar(10), prorroga.fecha_finalizacion.slice(0, 10))
+      .input('observacion', sql.NVarChar(500), prorroga.observacion ?? null)
+      .query(`
+        INSERT INTO PRORROGA (id_obligacion, fecha_inicio, fecha_finalizacion, observacion)
+        VALUES (@id, CONVERT(DATE, @inicio, 23), CONVERT(DATE, @fin, 23), @observacion);
+        SELECT CAST(SCOPE_IDENTITY() AS INT) AS id_prorroga;
       `);
-
-    if (prorrogaExistente.recordset.length > 0) {
-      throw new BadRequestException(
-        'La obligación ya tiene una prórroga registrada.',
-      );
-    }
-
-    // ----------------------------------------------------------
-    // La prórroga debe comenzar después del vencimiento
-    // ----------------------------------------------------------
-
-    if (
-      prorroga.fecha_inicio <= this.formatearFecha(obligacion.fecha_vencimiento)
-    ) {
-      throw new BadRequestException(
-        'La fecha de inicio de la prórroga debe ser posterior a la fecha de vencimiento de la obligación.',
-      );
-    }
-
-    // ----------------------------------------------------------
-    // No permitir prórroga para obligación anulada o pagada
-    // ----------------------------------------------------------
-
-    if (obligacion.estado === 'ANULADA') {
-      throw new BadRequestException(
-        'No se puede crear una prórroga para una obligación anulada.',
-      );
-    }
-
-    if (obligacion.estado === 'PAGADA') {
-      throw new BadRequestException(
-        'No se puede crear una prórroga para una obligación pagada.',
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Crear prórroga
-    // ----------------------------------------------------------
-
-    const result = await pool
-      .request()
-      .input('id_obligacion', prorroga.id_obligacion)
-      .input('fecha_inicio', prorroga.fecha_inicio)
-      .input('fecha_fin', prorroga.fecha_fin)
-      .input('observacion', prorroga.observacion ?? null).query(`
-        INSERT INTO prorroga (
-          id_obligacion,
-          fecha_inicio,
-          fecha_fin,
-          observacion
-        )
-        OUTPUT INSERTED.*
-        VALUES (
-          @id_obligacion,
-          @fecha_inicio,
-          @fecha_fin,
-          @observacion
-        );
-      `);
-
-    return result.recordset[0];
+    return this.getProrroga(result.recordset[0].id_prorroga);
   }
 
-  // ============================================================
-  // ACTUALIZAR
-  // ============================================================
-
   async updateProrroga(id: number, datos: UpdateProrrogaDto) {
-    const pool = this.databaseService.getPool();
-
-    // ----------------------------------------------------------
-    // Obtener prórroga
-    // ----------------------------------------------------------
-
-    const prorrogaResult = await pool.request().input('id_prorroga', id).query(`
-        SELECT
-          p.id_prorroga,
-          p.id_obligacion,
-          p.fecha_inicio,
-          p.fecha_fin,
-          p.observacion,
-          o.fecha_vencimiento,
-          o.estado
-        FROM prorroga p
-        INNER JOIN obligacion_pago o
-          ON p.id_obligacion = o.id_obligacion
-        WHERE p.id_prorroga = @id_prorroga;
-      `);
-
-    if (prorrogaResult.recordset.length === 0) {
-      throw new NotFoundException(
-        `La prórroga con id ${id} no fue encontrada.`,
-      );
-    }
-
-    const actual = prorrogaResult.recordset[0];
-
-    // ----------------------------------------------------------
-    // No modificar prórrogas de obligaciones anuladas o pagadas
-    // ----------------------------------------------------------
-
-    if (actual.estado === 'ANULADA') {
-      throw new BadRequestException(
-        'No se puede modificar una prórroga para una obligación anulada.',
-      );
-    }
-
-    if (actual.estado === 'PAGADA') {
-      throw new BadRequestException(
-        'No se puede modificar una prórroga para una obligación pagada.',
-      );
-    }
-
-    const fechaInicio =
-      datos.fecha_inicio ?? this.formatearFecha(actual.fecha_inicio);
-
-    const fechaFin = datos.fecha_fin ?? this.formatearFecha(actual.fecha_fin);
-
-    // ----------------------------------------------------------
-    // Validar fechas
-    // ----------------------------------------------------------
-
-    if (fechaInicio > fechaFin) {
-      throw new BadRequestException(
-        'La fecha de inicio no puede ser posterior a la fecha de fin.',
-      );
-    }
-
-    if (fechaInicio <= this.formatearFecha(actual.fecha_vencimiento)) {
-      throw new BadRequestException(
-        'La fecha de inicio de la prórroga debe ser posterior a la fecha de vencimiento de la obligación.',
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Actualizar
-    // ----------------------------------------------------------
-
-    const result = await pool
+    const actual = await this.getProrroga(id);
+    const inicio =
+      datos.fecha_inicio?.slice(0, 10) ?? fechaISO(actual.fecha_inicio)!;
+    const fin =
+      datos.fecha_finalizacion?.slice(0, 10) ??
+      fechaISO(actual.fecha_finalizacion)!;
+    this.validar(
+      {
+        fecha_vencimiento: actual.fecha_vencimiento,
+        estado: actual.estado_obligacion,
+      },
+      inicio,
+      fin,
+    );
+    await this.databaseService
+      .getPool()
       .request()
-      .input('id_prorroga', id)
-      .input('fecha_inicio', fechaInicio)
-      .input('fecha_fin', fechaFin)
+      .input('id', sql.Int, id)
+      .input('inicio', sql.VarChar(10), inicio)
+      .input('fin', sql.VarChar(10), fin)
       .input(
         'observacion',
+        sql.NVarChar(500),
         datos.observacion !== undefined
           ? datos.observacion
           : actual.observacion,
       ).query(`
-        UPDATE prorroga
-        SET
-          fecha_inicio = @fecha_inicio,
-          fecha_fin = @fecha_fin,
+        UPDATE PRORROGA
+        SET fecha_inicio = CONVERT(DATE, @inicio, 23),
+          fecha_finalizacion = CONVERT(DATE, @fin, 23),
           observacion = @observacion
-        OUTPUT INSERTED.*
-        WHERE id_prorroga = @id_prorroga;
+        WHERE id_prorroga = @id;
       `);
-
-    return result.recordset[0];
+    return this.getProrroga(id);
   }
 
-  // ============================================================
-  // ELIMINAR
-  // ============================================================
-
   async deleteProrroga(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const existe = await pool.request().input('id_prorroga', id).query(`
-        SELECT
-          p.id_prorroga,
-          o.estado
-        FROM prorroga p
-        INNER JOIN obligacion_pago o
-          ON p.id_obligacion = o.id_obligacion
-        WHERE p.id_prorroga = @id_prorroga;
-      `);
-
-    if (existe.recordset.length === 0) {
-      throw new NotFoundException(
-        `La prórroga con id ${id} no fue encontrada.`,
-      );
-    }
-
-    const prorroga = existe.recordset[0];
-
-    if (prorroga.estado === 'PAGADA') {
+    const actual = await this.getProrroga(id);
+    if (actual.estado_obligacion === 'PAGADA')
       throw new BadRequestException(
         'No se puede eliminar una prórroga asociada a una obligación pagada.',
       );
-    }
-
-    await pool.request().input('id_prorroga', id).query(`
-        DELETE FROM prorroga
-        WHERE id_prorroga = @id_prorroga;
-      `);
-
-    return {
-      mensaje: 'Prórroga eliminada correctamente.',
-      id_prorroga: id,
-    };
+    await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id)
+      .query('DELETE FROM PRORROGA WHERE id_prorroga = @id');
+    return { mensaje: 'Prórroga eliminada correctamente.', id_prorroga: id };
   }
 
-  // ============================================================
-  // FORMATEAR FECHA
-  // ============================================================
-
-  private formatearFecha(valor: Date | string): string {
-    if (typeof valor === 'string') {
-      return valor.substring(0, 10);
-    }
-
-    return valor.toISOString().substring(0, 10);
+  private validar(
+    obligacion: { fecha_vencimiento: Date | string; estado: string },
+    inicio: string,
+    fin: string,
+  ) {
+    if (obligacion.estado === 'ANULADA')
+      throw new BadRequestException('La obligación está anulada.');
+    if (obligacion.estado === 'PAGADA')
+      throw new BadRequestException('La obligación ya está pagada.');
+    if (inicio > fin)
+      throw new BadRequestException(
+        'La fecha de inicio no puede ser posterior a la fecha de finalización.',
+      );
+    if (inicio <= fechaISO(obligacion.fecha_vencimiento)!)
+      throw new BadRequestException(
+        'La fecha de inicio de la prórroga debe ser posterior a la fecha de vencimiento de la obligación.',
+      );
   }
 }

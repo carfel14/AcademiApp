@@ -52,23 +52,19 @@ function NuevaInscripcionWizardModal({
       .filter((e) => e.estado === "ACTIVO")
       .filter((e) => {
         const nom = `${e.nombres} ${e.apellidos}`.toLowerCase();
-        const cod = (e.codigo_estudiante || "").toLowerCase();
+        const cod = (e.codigo || "").toLowerCase();
         const tel = (e.telefono || "").toLowerCase();
         return nom.includes(t) || cod.includes(t) || tel.includes(t);
       })
       .slice(0, 5);
   }, [estudiantes, busquedaEstudiante]);
 
-  // Inscripciones activas del estudiante para no duplicar
+  // UQ_INSCRIPCION_id_estudiante_id_grupo: una inscripción por grupo, en cualquier estado
   const gruposInscritosEstudiante = useMemo(() => {
     if (!estudianteSeleccionado) return new Set<number>();
     return new Set(
       inscripciones
-        .filter(
-          (i) =>
-            i.id_estudiante === estudianteSeleccionado.id_estudiante &&
-            i.estado_inscripcion === "ACTIVA"
-        )
+        .filter((i) => i.id_estudiante === estudianteSeleccionado.id_estudiante)
         .map((i) => i.id_grupo)
     );
   }, [inscripciones, estudianteSeleccionado]);
@@ -80,7 +76,7 @@ function NuevaInscripcionWizardModal({
       const fInicio = String(g.fecha_inicio).substring(0, 10);
       return (
         g.id_curso === cursoSeleccionado.id_curso &&
-        g.estado.toUpperCase() === "ACTIVO" &&
+        g.estado === "EN_CURSO" &&
         !gruposInscritosEstudiante.has(g.id_grupo) &&
         hoyStr <= fInicio
       );
@@ -172,7 +168,7 @@ function NuevaInscripcionWizardModal({
                           <p className="text-sm font-semibold text-gray-900">
                             {e.nombres} {e.apellidos}
                           </p>
-                          <p className="text-xs font-mono text-blue-900">{e.codigo_estudiante}</p>
+                          <p className="text-xs font-mono text-blue-900">{e.codigo}</p>
                         </div>
                         <span className="text-xs text-gray-400">{e.telefono || "Sin tel."}</span>
                       </button>
@@ -192,7 +188,7 @@ function NuevaInscripcionWizardModal({
                       {estudianteSeleccionado.nombres} {estudianteSeleccionado.apellidos}
                     </p>
                     <p className="text-xs font-mono text-blue-900">
-                      {estudianteSeleccionado.codigo_estudiante} • {estudianteSeleccionado.telefono || "Sin tel."}
+                      {estudianteSeleccionado.codigo} • {estudianteSeleccionado.telefono || "Sin tel."}
                     </p>
                   </div>
                 </div>
@@ -233,7 +229,7 @@ function NuevaInscripcionWizardModal({
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
               {cursos
-                .filter((c) => c.estado.toUpperCase() === "ACTIVO")
+                .filter((c) => c.estado === "ACTIVO")
                 .map((curso) => {
                   const seleccionado = cursoSeleccionado?.id_curso === curso.id_curso;
 
@@ -252,12 +248,12 @@ function NuevaInscripcionWizardModal({
                       }`}
                     >
                       <div>
-                        <p className="text-sm font-bold text-gray-900">{curso.nombre_curso}</p>
+                        <p className="text-sm font-bold text-gray-900">{curso.nombre}</p>
                         <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{curso.descripcion}</p>
                       </div>
                       <div className="mt-3 flex items-center justify-between text-xs font-semibold text-blue-950 border-t border-gray-100 pt-2">
                         <span>Matrícula: C$ {curso.precio_matricula}</span>
-                        <span>Total: C$ {curso.precio}</span>
+                        <span>Total: C$ {curso.precio_total}</span>
                       </div>
                     </button>
                   );
@@ -293,7 +289,7 @@ function NuevaInscripcionWizardModal({
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-gray-700 mb-2">
-              Grupos disponibles para {cursoSeleccionado?.nombre_curso}
+              Grupos disponibles para {cursoSeleccionado?.nombre}
             </label>
 
             {gruposDisponibles.length === 0 ? (
@@ -319,7 +315,7 @@ function NuevaInscripcionWizardModal({
                       <div>
                         <div className="flex items-center gap-2">
                           <Layers className="h-4 w-4 text-blue-900" />
-                          <p className="text-sm font-bold text-gray-900">{grupo.nombre_grupo}</p>
+                          <p className="text-sm font-bold text-gray-900">{grupo.nombre}</p>
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
                             {grupo.duracion_meses} meses
                           </span>
@@ -327,7 +323,7 @@ function NuevaInscripcionWizardModal({
                         <p className="text-xs text-gray-500 mt-1 flex items-center gap-2">
                           <span>Inicia: {String(grupo.fecha_inicio).substring(0, 10)}</span>
                           <span>•</span>
-                          <span>Finaliza: {String(grupo.fecha_fin).substring(0, 10)}</span>
+                          <span>Cierre estimado: {String(grupo.fecha_fin_estimada).substring(0, 10)}</span>
                         </p>
                       </div>
 
@@ -377,17 +373,17 @@ function NuevaInscripcionWizardModal({
                   {estudianteSeleccionado.nombres} {estudianteSeleccionado.apellidos}
                 </p>
                 <p className="text-blue-900 font-mono text-[11px]">
-                  {estudianteSeleccionado.codigo_estudiante}
+                  {estudianteSeleccionado.codigo}
                 </p>
               </div>
 
               <div>
                 <p className="text-gray-500 font-medium">Curso & Grupo:</p>
                 <p className="font-bold text-gray-900 text-sm mt-0.5">
-                  {cursoSeleccionado.nombre_curso}
+                  {cursoSeleccionado.nombre}
                 </p>
                 <p className="text-gray-600 font-medium">
-                  {grupoSeleccionado.nombre_grupo} ({grupoSeleccionado.duracion_meses} meses)
+                  {grupoSeleccionado.nombre} ({grupoSeleccionado.duracion_meses} meses)
                 </p>
               </div>
 
@@ -404,7 +400,7 @@ function NuevaInscripcionWizardModal({
                   Matrícula: C$ {cursoSeleccionado.precio_matricula} (Pago auto)
                 </p>
                 <p className="text-gray-700">
-                  Total Curso: C$ {cursoSeleccionado.precio} en {grupoSeleccionado.duracion_meses} cuotas
+                  Total Curso: C$ {cursoSeleccionado.precio_total} en {grupoSeleccionado.duracion_meses} cuotas
                 </p>
               </div>
             </div>

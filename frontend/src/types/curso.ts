@@ -1,8 +1,18 @@
 export interface Curso {
   id_curso: number;
-  nombre_curso: string;
+  nombre: string;
   descripcion: string;
-  precio: number;
+  precio_total: number;
   precio_matricula: number;
-  estado: string;
+  estado: "ACTIVO" | "INACTIVO";
+  planes?: number;
+}
+
+export interface PlanEstudio {
+  id_plan: number;
+  id_curso: number;
+  nombre: string;
+  descripcion?: string | null;
+  version: number;
+  estado: "ACTIVO" | "INACTIVO";
 }

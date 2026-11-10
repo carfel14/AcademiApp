@@ -4,6 +4,7 @@ import { useToast } from "../../context/ToastContext";
 
 import {
   obtenerCursos,
+  obtenerPlanesCurso,
   eliminarCurso as eliminarCursoApi,
   crearCurso,
   actualizarCurso,
@@ -16,7 +17,7 @@ import {
   finalizarGrupo,
 } from "../../services/grupoService";
 
-import type { Curso } from "../../types/curso";
+import type { Curso, PlanEstudio } from "../../types/curso";
 import type { Grupo } from "../../types/grupo";
 import type { CursoFormData } from "../../schema/cursoSchema";
 import {
@@ -50,6 +51,7 @@ function CursosPage() {
     useState<Curso | undefined>();
   const [grupoSeleccionado, setGrupoSeleccionado] =
     useState<Grupo | undefined>();
+  const [planesCurso, setPlanesCurso] = useState<PlanEstudio[]>([]);
 
   const cargarCursos = useCallback(async (refresh = true) => {
     try {
@@ -89,7 +91,14 @@ function CursosPage() {
     setCursoSeleccionado(undefined);
   }
 
-  function abrirModalGrupo(curso: Curso) {
+  async function abrirModalGrupo(curso: Curso) {
+    try {
+      const planes = await obtenerPlanesCurso(curso.id_curso);
+      setPlanesCurso(planes.filter((plan) => plan.estado === "ACTIVO"));
+    } catch {
+      setPlanesCurso([]);
+      toast.warning("No se pudieron cargar los planes de estudio del curso");
+    }
     setGrupoSeleccionado(undefined);
     setCursoParaGrupo(curso);
   }
@@ -138,9 +147,11 @@ function CursosPage() {
 
       toast.success("Curso creado con éxito");
       cerrarModal();
-    } catch {
+    } catch (error) {
       toast.warning(
-        cursoSeleccionado
+        error instanceof Error
+          ? error.message
+          : cursoSeleccionado
           ? "No se pudo actualizar el curso"
           : "No se pudo crear el curso"
       );
@@ -151,22 +162,17 @@ function CursosPage() {
     try {
       const cursoActual = cursos.find((curso) => curso.id_curso === id);
 
-      if (cursoActual && cursoActual.estado.toUpperCase() === "FINALIZADO") {
-        setCursos((cursosActuales) =>
-          cursosActuales.filter((curso) => curso.id_curso !== id)
-        );
-        toast.error("Curso finalizado removido");
-        return;
-      }
+      if (!cursoActual) return;
 
       await eliminarCursoApi(id);
 
+      // CURSO.estado pasa a INACTIVO; la lista solo muestra cursos activos.
       setCursos((cursosActuales) =>
         cursosActuales.filter((curso) => curso.id_curso !== id)
       );
-      toast.error("Curso eliminado correctamente");
-    } catch {
-      toast.warning("No se pudo eliminar el curso");
+      toast.error("Curso desactivado correctamente");
+    } catch (error) {
+      toast.warning(error instanceof Error ? error.message : "No se pudo desactivar el curso");
     }
   }
 
@@ -184,7 +190,7 @@ function CursosPage() {
         const grupoActualizado = await actualizarGrupo(
           grupoSeleccionado.id_grupo,
           {
-            nombre_grupo: data.nombre_grupo,
+            nombre: data.nombre,
             duracion_meses: duracionMeses,
           }
         );
@@ -208,8 +214,8 @@ function CursosPage() {
         }
 
         const nuevoGrupo = await crearGrupo({
-          id_curso: cursoParaGrupo.id_curso,
-          nombre_grupo: data.nombre_grupo,
+          id_plan: data.id_plan,
+          nombre: data.nombre,
           fecha_inicio: data.fecha_inicio,
           duracion_meses: duracionMeses,
         });
@@ -274,7 +280,7 @@ function CursosPage() {
 
   const cursosFiltrados = cursos
     .filter((curso) => {
-      const coincideNombre = curso.nombre_curso
+      const coincideNombre = curso.nombre
         .toLowerCase()
         .includes(busqueda.trim().toLowerCase());
       const coincideEstado =
@@ -337,7 +343,7 @@ function CursosPage() {
           >
             <option value="todos">Todos</option>
             <option value="activo">Activo</option>
-            <option value="finalizado">Finalizado</option>
+            <option value="inactivo">Inactivo</option>
           </select>
         </label>
       </div>
@@ -368,10 +374,11 @@ function CursosPage() {
         isOpen={Boolean(cursoParaGrupo)}
         onClose={cerrarModalGrupo}
         zIndex={60}
-        title={`${grupoSeleccionado ? "Editar grupo" : "Nuevo grupo"}${cursoParaGrupo ? `: ${cursoParaGrupo.nombre_curso}` : ""}`}
+        title={`${grupoSeleccionado ? "Editar grupo" : "Nuevo grupo"}${cursoParaGrupo ? `: ${cursoParaGrupo.nombre}` : ""}`}
       >
         <GrupoForm
           grupo={grupoSeleccionado}
+          planes={planesCurso}
           onSubmit={handleAgregarGrupo}
         />
       </Modal>
@@ -384,7 +391,7 @@ function CursosPage() {
       >
         {cursoParaAdministrar && (
           <AdministrarGruposModal
-            cursoNombre={cursoParaAdministrar.nombre_curso}
+            cursoNombre={cursoParaAdministrar.nombre}
             grupos={grupos.filter((grupo) => grupo.id_curso === cursoParaAdministrar.id_curso)}
             onAgregarGrupo={() => abrirModalGrupo(cursoParaAdministrar)}
             onEditarGrupo={abrirModalEditarGrupo}

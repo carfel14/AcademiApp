@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarDays, Clock3, Plus, Save, Users } from "lucide-react";
+import { BookOpen, CalendarDays, Clock3, Plus, Save, Users } from "lucide-react";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 
@@ -11,15 +11,19 @@ import {
 } from "../../schema/grupoSchema";
 
 import type { Grupo } from "../../types/grupo";
+import type { PlanEstudio } from "../../types/curso";
 
 interface GrupoFormProps {
   grupo?: Grupo;
+  /** Planes de estudio activos del curso; requeridos al crear. */
+  planes?: PlanEstudio[];
   onSubmit: (
     data: CrearGrupoFormData | ActualizarGrupoFormData
   ) => Promise<void>;
 }
 
-function GrupoForm({ grupo, onSubmit }: GrupoFormProps) {
+function GrupoForm({ grupo, planes = [], onSubmit }: GrupoFormProps) {
+  const planInicial = planes[planes.length - 1]?.id_plan ?? 0;
   const {
     register,
     handleSubmit,
@@ -30,19 +34,19 @@ function GrupoForm({ grupo, onSubmit }: GrupoFormProps) {
       grupo ? actualizarGrupoSchema : crearGrupoSchema
     ),
     defaultValues: {
-      nombre_grupo: "",
+      nombre: "",
       duracion_meses: 1,
-      ...(grupo ? {} : { fecha_inicio: "" }),
+      ...(grupo ? {} : { fecha_inicio: "", id_plan: planInicial }),
     },
   });
 
   useEffect(() => {
     reset({
-      nombre_grupo: grupo?.nombre_grupo ?? "",
+      nombre: grupo?.nombre ?? "",
       duracion_meses: grupo?.duracion_meses ?? 1,
-      ...(grupo ? {} : { fecha_inicio: "" }),
+      ...(grupo ? {} : { fecha_inicio: "", id_plan: planInicial }),
     });
-  }, [grupo, reset]);
+  }, [grupo, planInicial, reset]);
 
   async function handleFormSubmit(
     data: CrearGrupoFormData | ActualizarGrupoFormData
@@ -76,17 +80,44 @@ function GrupoForm({ grupo, onSubmit }: GrupoFormProps) {
           </label>
 
           <input
-            {...register("nombre_grupo")}
+            {...register("nombre")}
             className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
             placeholder="Ej. Grupo A"
           />
 
-          {errors.nombre_grupo && (
+          {errors.nombre && (
             <p className="mt-1.5 text-xs font-medium text-red-600">
-              {errors.nombre_grupo.message}
+              {errors.nombre.message}
             </p>
           )}
         </div>
+
+        {!grupo && (
+          <div>
+            <label className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+              <BookOpen className="h-4 w-4 text-blue-700" />
+              Plan de estudio
+            </label>
+
+            <select
+              {...register("id_plan", { valueAsNumber: true })}
+              className="mt-2 w-full rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
+            >
+              <option value={0}>Selecciona un plan</option>
+              {planes.map((plan) => (
+                <option key={plan.id_plan} value={plan.id_plan}>
+                  {plan.nombre} (versión {plan.version})
+                </option>
+              ))}
+            </select>
+
+            {"id_plan" in errors && errors.id_plan && (
+              <p className="mt-1.5 text-xs font-medium text-red-600">
+                {errors.id_plan.message}
+              </p>
+            )}
+          </div>
+        )}
 
         <div>
           <label className="flex items-center gap-2 text-sm font-semibold text-gray-800">

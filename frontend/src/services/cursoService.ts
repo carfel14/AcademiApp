@@ -1,92 +1,46 @@
-import { apiFetch } from "./api";
-import type { Curso } from "../types/curso";
+import { api } from "./api";
+import type { Curso, PlanEstudio } from "../types/curso";
 import type { CursoFormData } from "../schema/cursoSchema";
 
 const API_URL = "/cursos";
 
-function normalizarCurso(
-  curso: Partial<Curso> & {
-    precio?: number;
-    precio_matricula?: number;
-    matricula?: number;
-    mensualidad?: number;
-  }
-): Curso {
+function normalizarCurso(curso: Curso): Curso {
   return {
-    id_curso: curso.id_curso ?? 0,
-    nombre_curso: curso.nombre_curso ?? "",
+    ...curso,
     descripcion: curso.descripcion ?? "",
-    precio: Number(curso.precio ?? curso.matricula ?? 0),
-    precio_matricula: Number(curso.precio_matricula ?? curso.mensualidad ?? curso.matricula ?? 0),
-    estado: curso.estado ?? "ACTIVO",
+    precio_total: Number(curso.precio_total ?? 0),
+    precio_matricula: Number(curso.precio_matricula ?? 0),
   };
 }
 
 function mapearPayload(curso: CursoFormData) {
   return {
-    nombre_curso: curso.nombre_curso,
-    descripcion: curso.descripcion ?? "",
-    precio: Number(curso.precio),
+    nombre: curso.nombre,
+    descripcion: curso.descripcion || undefined,
+    precio_total: Number(curso.precio_total),
     precio_matricula: Number(curso.precio_matricula),
   };
 }
 
 export async function obtenerCursos(): Promise<Curso[]> {
-  const response = await apiFetch(API_URL);
-
-  if (!response.ok) {
-    throw new Error("No se pudieron obtener los cursos");
-  }
-
-  const data = await response.json();
+  const data = await api<Curso[]>(API_URL);
   return Array.isArray(data) ? data.map(normalizarCurso) : [];
 }
 
-export async function crearCurso(
-  curso: CursoFormData
-): Promise<Curso> {
-  const response = await apiFetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(mapearPayload(curso)),
-  });
-
-  if (!response.ok) {
-    throw new Error("No se pudo crear el curso");
-  }
-
-  const data = await response.json();
-  return normalizarCurso(data);
+export async function crearCurso(curso: CursoFormData): Promise<Curso> {
+  return normalizarCurso(await api<Curso>(API_URL, "POST", mapearPayload(curso)));
 }
 
-export async function actualizarCurso(
-  id: number,
-  curso: CursoFormData
-): Promise<Curso> {
-  const response = await apiFetch(`${API_URL}/${id}`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(mapearPayload(curso)),
-  });
-
-  if (!response.ok) {
-    throw new Error("No se pudo actualizar el curso");
-  }
-
-  const data = await response.json();
-  return normalizarCurso(data);
+export async function actualizarCurso(id: number, curso: Partial<CursoFormData>): Promise<Curso> {
+  const payload: Record<string, unknown> = mapearPayload(curso as CursoFormData);
+  for (const key of Object.keys(payload)) if (payload[key] === undefined || Number.isNaN(payload[key])) delete payload[key];
+  return normalizarCurso(await api<Curso>(`${API_URL}/${id}`, "PATCH", payload));
 }
 
 export async function eliminarCurso(id: number): Promise<void> {
-  const response = await apiFetch(`${API_URL}/${id}`, {
-    method: "DELETE",
-  });
-
-  if (!response.ok) {
-    throw new Error("No se pudo eliminar el curso");
-  }
+  await api(`${API_URL}/${id}`, "DELETE");
 }
+
+/** Planes de estudio del curso (GRUPO se crea sobre un PLAN_ESTUDIO). */
+export const obtenerPlanesCurso = (idCurso: number) =>
+  api<PlanEstudio[]>(`/planes/planes?padre=${idCurso}`);

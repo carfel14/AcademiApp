@@ -6,6 +6,6 @@ import { DatabaseModule } from 'src/database/database.module';
 @Module({
   imports: [DatabaseModule],
   controllers: [HorarioClaseController],
-  providers: [HorarioClaseService]
+  providers: [HorarioClaseService],
 })
 export class HorarioClaseModule {}

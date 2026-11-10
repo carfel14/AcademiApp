@@ -89,7 +89,7 @@ function AdministrarGruposModal({
     setHorarioSeleccionado(horario);
   }
 
-  async function guardarHorario(data: { dia_semana: string; hora_inicio: string; hora_fin: string }) {
+  async function guardarHorario(data: { dia_semana: string; hora_inicio: string; hora_finalizacion: string }) {
     if (!grupoParaHorario) return;
 
     try {
@@ -169,10 +169,15 @@ function AdministrarGruposModal({
           <section key={grupo.id_grupo} className="rounded-lg border border-gray-200 bg-gray-50 p-4 shadow-md shadow-gray-900/5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="font-semibold text-gray-900">{grupo.nombre_grupo}</h3>
+                <h3 className="font-semibold text-gray-900">{grupo.nombre}</h3>
                 <p className="mt-1 text-sm text-gray-500">Inicio: {grupo.fecha_inicio.slice(0, 10)}</p>
                 <p className="mt-1 text-sm text-gray-500">
                   Duración: {grupo.duracion_meses ? `${grupo.duracion_meses} meses` : "Sin duración"}
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  {grupo.fecha_fin
+                    ? `Cierre: ${grupo.fecha_fin.slice(0, 10)}`
+                    : `Cierre estimado: ${grupo.fecha_fin_estimada.slice(0, 10)}`}
                 </p>
               </div>
               <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">{grupo.estado}</span>
@@ -193,7 +198,7 @@ function AdministrarGruposModal({
               <div className="mt-2 space-y-2">
                 {(horarios[grupo.id_grupo] ?? []).map((horario) => (
                   <div key={horario.id_horario} className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm">
-                    <span>{formatearDia(horario.dia_semana)} {formatearHora(horario.hora_inicio)} - {formatearHora(horario.hora_fin)}</span>
+                    <span>{formatearDia(horario.dia_semana)} {formatearHora(horario.hora_inicio)} - {formatearHora(horario.hora_finalizacion)}</span>
                     <span className="flex items-center gap-1">
                       <button type="button" onClick={() => abrirEditarHorario(grupo, horario)} aria-label="Editar horario" title="Editar horario" className="rounded p-1 text-yellow-500 hover:bg-yellow-100"><Pencil className="h-4 w-4" /></button>
                       <button type="button" onClick={() => setHorarioAEliminar(horario)} aria-label="Eliminar horario" title="Eliminar horario" className="rounded p-1 text-red-600 hover:bg-red-100"><Trash2 className="h-4 w-4" /></button>
@@ -206,8 +211,8 @@ function AdministrarGruposModal({
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3 border-t border-gray-100 pt-3 text-sm">
-              <p className="text-gray-600"><strong className="text-gray-900">0</strong> estudiantes</p>
-              <p className="text-gray-600"><strong className="text-gray-900">0</strong> profesores</p>
+              <p className="text-gray-600"><strong className="text-gray-900">{grupo.inscritos ?? 0}</strong> estudiantes</p>
+              <p className="text-gray-600"><strong className="text-gray-900">{grupo.profesores_asignados ?? 0}</strong> profesores</p>
             </div>
 
             <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
@@ -219,7 +224,7 @@ function AdministrarGruposModal({
                 Editar grupo
               </button>
 
-              {grupo.estado.toUpperCase() === "ACTIVO" && (
+              {grupo.estado === "EN_CURSO" && (
                 <button
                   type="button"
                   onClick={() => setGrupoAFinalizar(grupo)}
@@ -256,7 +261,7 @@ function AdministrarGruposModal({
       </Modal>
 
       <Modal isOpen={Boolean(grupoAEliminar)} onClose={() => setGrupoAEliminar(undefined)} title="Eliminar grupo">
-        <p className="text-sm text-gray-600">¿Deseas eliminar el grupo {grupoAEliminar?.nombre_grupo}?</p>
+        <p className="text-sm text-gray-600">¿Deseas eliminar el grupo {grupoAEliminar?.nombre}?</p>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={() => setGrupoAEliminar(undefined)} className="rounded-md border px-4 py-2 text-sm">Cancelar</button>
           <button type="button" onClick={async () => { if (grupoAEliminar) await onEliminarGrupo(grupoAEliminar.id_grupo); setGrupoAEliminar(undefined); }} className="rounded-md bg-red-600 px-4 py-2 text-sm text-white">Eliminar</button>
@@ -266,7 +271,7 @@ function AdministrarGruposModal({
       <Modal isOpen={Boolean(grupoAFinalizar)} onClose={() => setGrupoAFinalizar(undefined)} title="Finalizar grupo">
         <div className="space-y-4">
           <p className="text-sm leading-6 text-gray-600">
-            ¿Deseas finalizar el grupo <strong className="text-gray-900">{grupoAFinalizar?.nombre_grupo}</strong>?
+            ¿Deseas finalizar el grupo <strong className="text-gray-900">{grupoAFinalizar?.nombre}</strong>?
           </p>
           <p className="text-sm text-gray-500">
             Esta acción finalizará sus inscripciones activas y cancelará sus sesiones programadas.

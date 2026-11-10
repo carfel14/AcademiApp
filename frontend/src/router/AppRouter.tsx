@@ -11,7 +11,10 @@ import { BitacoraPage, PlanesPage, ReportesPage, UsuariosPage } from "../pages/g
 import { EditForm, Status, type Field } from "../pages/gestion/ui";
 import { api, getToken, setToken } from "../services/api";
 
-export type Usuario = { id_usuario: number; username: string; nombres: string; apellidos: string; rol: string };
+export type Usuario = {
+  id_usuario: number; usuario: string; email: string | null;
+  id_profesor: number | null; profesor: string | null; roles: string[];
+};
 
 export default function AppRouter() {
   const [usuario, setUsuario] = useState<Usuario>();
@@ -39,10 +42,12 @@ export default function AppRouter() {
   if (!usuario) return <main className="access-page"><Status error={error || undefined} loading={!error} retry={() => setRetry(n => n + 1)} />
     {error && <button className="work-link" onClick={() => setToken()}>Volver al acceso</button>}</main>;
 
-  const admin = usuario.rol === "ADMIN";
-  const docente = usuario.rol === "PROFESOR";
-  const caja = usuario.rol === "CAJA";
-  const inicio = admin ? "/reportes" : docente ? "/asistencia" : "/cobros";
+  // Roles de los datos iniciales del script; un usuario puede tener varios.
+  const admin = usuario.roles.includes("ADMINISTRADOR");
+  const docente = usuario.roles.includes("DOCENTE");
+  const caja = usuario.roles.includes("CAJERO");
+  const recepcion = usuario.roles.includes("RECEPCION");
+  const inicio = admin ? "/reportes" : docente ? "/asistencia" : caja ? "/cobros" : "/inscripciones";
 
   return <Routes>
     <Route element={<MainLayout usuario={usuario} onLogout={async () => {
@@ -50,8 +55,8 @@ export default function AppRouter() {
     }} />}>
       {admin && <Route path="/cursos" element={<CursosPage />} />}
       {admin && <Route path="/profesores" element={<ProfesoresPage />} />}
-      {(admin || caja) && <Route path="/estudiantes" element={<EstudiantesPage />} />}
-      {(admin || caja) && <Route path="/inscripciones" element={<InscripcionesPage />} />}
+      {(admin || recepcion) && <Route path="/estudiantes" element={<EstudiantesPage />} />}
+      {(admin || recepcion) && <Route path="/inscripciones" element={<InscripcionesPage />} />}
       {(admin || docente) && <Route path="/calendario" element={<CalendarioPage admin={admin} />} />}
       {(admin || docente) && <Route path="/asistencia" element={<AsistenciaPage key="asistencia" />} />}
       {(admin || docente) && <Route path="/evaluaciones" element={<AsistenciaPage key="evaluaciones" evaluaciones />} />}
@@ -69,9 +74,9 @@ export default function AppRouter() {
 function Acceso({ onLogin }: { onLogin: (user: Usuario, token: string) => void }) {
   const [setup, setSetup] = useState(false);
   const fields: Field[] = [
-    ...(setup ? [{ name: "nombres", label: "Nombres", max: 100 }, { name: "apellidos", label: "Apellidos", max: 100 }] : []),
-    { name: "username", label: "Usuario", max: 50 },
-    { name: "password", label: setup ? "Contraseña (mínimo 10 caracteres)" : "Contraseña", type: "password", min: setup ? 10 : 1, max: 128 },
+    { name: "usuario", label: "Usuario", max: 50 },
+    { name: "contrasena", label: setup ? "Contraseña (mínimo 10 caracteres)" : "Contraseña", type: "password", min: setup ? 10 : 1, max: 128 },
+    ...(setup ? [{ name: "email", label: "Correo electrónico (opcional)", max: 150, required: false }] : []),
     ...(setup ? [{ name: "clave", label: "Clave de configuración", type: "password" as const, max: 256 }] : []),
   ];
   return <main className="access-page">
@@ -81,7 +86,8 @@ function Acceso({ onLogin }: { onLogin: (user: Usuario, token: string) => void }
       {setup && <p className="work-muted">Usa la clave APP_SETUP_KEY del servidor para crear la primera cuenta administradora.</p>}
       <EditForm key={String(setup)} fields={fields} saveLabel={setup ? "Crear administrador" : "Ingresar"}
         onSave={async data => {
-          const result = await api<{ usuario: Usuario; token: string }>(setup ? "/auth/configurar" : "/auth/login", "POST", data);
+          const body = { ...data, ...(data.email ? {} : { email: undefined }) };
+          const result = await api<{ usuario: Usuario; token: string }>(setup ? "/auth/configurar" : "/auth/login", "POST", body);
           onLogin(result.usuario, result.token);
         }} />
       <button className="work-link" onClick={() => setSetup(!setup)}>{setup ? "Volver al inicio de sesión" : "Configurar primer acceso"}</button>

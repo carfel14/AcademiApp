@@ -1,27 +1,29 @@
 import {
   IsDateString,
+  IsInt,
   IsNotEmpty,
-  IsNumber,
   IsString,
+  Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
 export class CreateGrupoDto {
-  @IsNotEmpty()
-  @IsNumber()
+  @IsInt()
   @Min(1)
-  id_curso!: number;
+  id_plan!: number;
 
   @IsNotEmpty()
   @IsString()
-  nombre_grupo!: string;
+  @MaxLength(100)
+  nombre!: string;
 
-  @IsNotEmpty()
-  @IsDateString()
+  @IsDateString({ strict: true })
   fecha_inicio!: string;
 
-  @IsNotEmpty()
-  @IsNumber()
+  // GRUPO.duracion_meses es TINYINT y debe ser mayor que 0.
+  @IsInt()
   @Min(1)
+  @Max(255)
   duracion_meses!: number;
 }

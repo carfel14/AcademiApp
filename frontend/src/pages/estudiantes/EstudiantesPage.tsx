@@ -117,7 +117,7 @@ function EstudiantesPage() {
       await cancelarInscripcion(id_inscripcion);
       setInscripciones((prev) =>
         prev.map((i) =>
-          i.id_inscripcion === id_inscripcion ? { ...i, estado_inscripcion: "CANCELADA" } : i
+          i.id_inscripcion === id_inscripcion ? { ...i, estado: "CANCELADA" as const } : i
         )
       );
       toast.error("Inscripción cancelada");
@@ -129,7 +129,7 @@ function EstudiantesPage() {
   const estudiantesFiltrados = estudiantes.filter((e) => {
     const termino = busqueda.trim().toLowerCase();
     const nombreCompleto = `${e.nombres} ${e.apellidos}`.toLowerCase();
-    const codigo = (e.codigo_estudiante || "").toLowerCase();
+    const codigo = (e.codigo || "").toLowerCase();
     const tel = (e.telefono || "").toLowerCase();
 
     const coincideTexto =

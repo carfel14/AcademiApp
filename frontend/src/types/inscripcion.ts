@@ -4,10 +4,13 @@ export interface Inscripcion {
   id_estudiante: number;
   id_grupo: number;
   fecha_inscripcion: string;
-  estado_inscripcion: "ACTIVA" | "FINALIZADA" | "CANCELADA";
+  estado: "ACTIVA" | "CANCELADA" | "FINALIZADA";
   observacion?: string | null;
-  nombre_estudiante?: string;
-  apellido_estudiante?: string;
-  nombre_grupo?: string;
-  nombre_curso?: string;
+  codigo?: string;
+  nombres?: string;
+  apellidos?: string;
+  grupo?: string;
+  id_plan?: number;
+  id_curso?: number;
+  curso?: string;
 }

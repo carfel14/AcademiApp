@@ -1,21 +1,6 @@
-import {
-  IsDateString,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { OmitType, PartialType } from '@nestjs/mapped-types';
+import { CreateProrrogaDto } from './create-prorroga.dto';
 
-export class UpdateProrrogaDto {
-  @IsOptional()
-  @IsDateString()
-  fecha_inicio?: string;
-
-  @IsOptional()
-  @IsDateString()
-  fecha_fin?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(5000)
-  observacion?: string;
-}
+export class UpdateProrrogaDto extends PartialType(
+  OmitType(CreateProrrogaDto, ['id_obligacion'] as const),
+) {}

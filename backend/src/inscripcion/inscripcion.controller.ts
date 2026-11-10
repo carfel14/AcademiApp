@@ -8,9 +8,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-
 import { InscripcionService } from './inscripcion.service';
-
 import { CreateInscripcionDto } from './dto/create-inscripcion.dto';
 import { UpdateInscripcionDto } from './dto/update-inscripcion.dto';
 
@@ -23,14 +21,14 @@ export class InscripcionController {
     return this.inscripcionService.getInscripciones();
   }
 
-  @Get('/:id')
-  getInscripcion(@Param('id') id: string) {
-    return this.inscripcionService.getInscripcion(Number(id));
-  }
-
-  @Get('/grupo/:idGrupo')
+  @Get('grupo/:idGrupo')
   getInscripcionesPorGrupo(@Param('idGrupo', ParseIntPipe) idGrupo: number) {
     return this.inscripcionService.getInscripcionesPorGrupo(idGrupo);
+  }
+
+  @Get(':id')
+  getInscripcion(@Param('id', ParseIntPipe) id: number) {
+    return this.inscripcionService.getInscripcion(id);
   }
 
   @Post()
@@ -38,16 +36,16 @@ export class InscripcionController {
     return this.inscripcionService.createInscripcion(inscripcion);
   }
 
-  @Patch('/:id')
+  @Patch(':id')
   updateInscripcion(
-    @Param('id') id: string,
+    @Param('id', ParseIntPipe) id: number,
     @Body() inscripcion: UpdateInscripcionDto,
   ) {
-    return this.inscripcionService.updateInscripcion(Number(id), inscripcion);
+    return this.inscripcionService.updateInscripcion(id, inscripcion);
   }
 
-  @Delete('/:id')
-  deleteInscripcion(@Param('id') id: string) {
-    return this.inscripcionService.deleteInscripcion(Number(id));
+  @Delete(':id')
+  deleteInscripcion(@Param('id', ParseIntPipe) id: number) {
+    return this.inscripcionService.deleteInscripcion(id);
   }
 }

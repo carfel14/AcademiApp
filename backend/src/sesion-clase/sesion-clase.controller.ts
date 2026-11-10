@@ -8,32 +8,19 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-
 import { SesionClaseService } from './sesion-clase.service';
-
+import { CreateContenidoDto, UpdateContenidoDto } from './dto/contenido.dto';
 import { CreateSesionClaseDto } from './dto/create-sesion-clase.dto';
+import { GenerarSesionesDto } from './dto/generar-sesiones.dto';
 import { UpdateSesionClaseDto } from './dto/update-sesion-clase.dto';
 
 @Controller('sesiones')
 export class SesionClaseController {
   constructor(private readonly sesionClaseService: SesionClaseService) {}
 
-  // ============================================================
-  // OBTENER TODAS
-  // ============================================================
-
   @Get()
   getSesiones() {
     return this.sesionClaseService.getSesiones();
-  }
-
-  // ============================================================
-  // OBTENER UNA
-  // ============================================================
-
-  @Get(':id')
-  getSesion(@Param('id', ParseIntPipe) id: number) {
-    return this.sesionClaseService.getSesion(id);
   }
 
   @Get('grupo/:idGrupo')
@@ -41,27 +28,53 @@ export class SesionClaseController {
     return this.sesionClaseService.getSesionesPorGrupo(idGrupo);
   }
 
-  // ============================================================
-  // CREAR SESIÓN MANUAL
-  // ============================================================
+  // PROGRAMACION_CONTENIDO ------------------------------------------------
+
+  @Patch('contenidos/:id')
+  updateContenido(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() datos: UpdateContenidoDto,
+  ) {
+    return this.sesionClaseService.updateContenido(id, datos);
+  }
+
+  @Delete('contenidos/:id')
+  deleteContenido(@Param('id', ParseIntPipe) id: number) {
+    return this.sesionClaseService.deleteContenido(id);
+  }
+
+  @Get(':id/contenidos')
+  getContenidos(@Param('id', ParseIntPipe) id: number) {
+    return this.sesionClaseService.getContenidos(id);
+  }
+
+  @Post(':id/contenidos')
+  createContenido(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() datos: CreateContenidoDto,
+  ) {
+    return this.sesionClaseService.createContenido(id, datos);
+  }
+
+  // SESION_CLASE ----------------------------------------------------------
+
+  @Get(':id')
+  getSesion(@Param('id', ParseIntPipe) id: number) {
+    return this.sesionClaseService.getSesion(id);
+  }
 
   @Post()
   createSesion(@Body() sesion: CreateSesionClaseDto) {
     return this.sesionClaseService.createSesion(sesion);
   }
 
-  // ============================================================
-  // GENERAR SESIONES DEL GRUPO
-  // ============================================================
-
   @Post('generar/:idGrupo')
-  generarSesiones(@Param('idGrupo', ParseIntPipe) idGrupo: number) {
-    return this.sesionClaseService.generarSesiones(idGrupo);
+  generarSesiones(
+    @Param('idGrupo', ParseIntPipe) idGrupo: number,
+    @Body() datos: GenerarSesionesDto,
+  ) {
+    return this.sesionClaseService.generarSesiones(idGrupo, datos);
   }
-
-  // ============================================================
-  // ACTUALIZAR SESIÓN
-  // ============================================================
 
   @Patch(':id')
   updateSesion(
@@ -71,18 +84,10 @@ export class SesionClaseController {
     return this.sesionClaseService.updateSesion(id, sesion);
   }
 
-  // ============================================================
-  // FINALIZAR SESIÓN
-  // ============================================================
-
   @Patch(':id/finalizar')
   finalizarSesion(@Param('id', ParseIntPipe) id: number) {
     return this.sesionClaseService.finalizarSesion(id);
   }
-
-  // ============================================================
-  // CANCELAR SESIÓN
-  // ============================================================
 
   @Delete(':id')
   cancelarSesion(@Param('id', ParseIntPipe) id: number) {

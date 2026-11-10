@@ -25,8 +25,24 @@ import { GestionModule } from './gestion/gestion.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    DatabaseModule, SeguridadModule, GestionModule,
-    CursoModule, GrupoModule, HorarioClaseModule, EstudianteModule, ProfesorModule, AsignacionProfesorModule, InscripcionModule, SesionClaseModule, AsistenciaModule, EvaluacionModule, ResultadoEvaluacionModule, ObligacionPagoModule, PagoModule, ProrrogaModule, CertificadoModule,
-  ]  
+    DatabaseModule,
+    SeguridadModule,
+    GestionModule,
+    CursoModule,
+    GrupoModule,
+    HorarioClaseModule,
+    EstudianteModule,
+    ProfesorModule,
+    AsignacionProfesorModule,
+    InscripcionModule,
+    SesionClaseModule,
+    AsistenciaModule,
+    EvaluacionModule,
+    ResultadoEvaluacionModule,
+    ObligacionPagoModule,
+    PagoModule,
+    ProrrogaModule,
+    CertificadoModule,
+  ],
 })
 export class AppModule {}

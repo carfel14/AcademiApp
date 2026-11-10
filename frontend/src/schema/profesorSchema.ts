@@ -18,10 +18,15 @@ export const profesorSchema = z.object({
     .max(20, "Máximo 20 caracteres")
     .optional()
     .or(z.literal("")),
-  especialidad: z
+  // Nombres de ESPECIALIDAD separados por coma
+  especialidades: z
     .string()
     .trim()
-    .max(100, "Máximo 100 caracteres")
+    .max(1000, "Demasiadas especialidades")
+    .refine(
+      (v) => v.split(",").every((e) => e.trim().length <= 100),
+      "Cada especialidad admite hasta 100 caracteres",
+    )
     .optional()
     .or(z.literal("")),
 });

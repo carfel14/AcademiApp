@@ -6,6 +6,6 @@ import { DatabaseModule } from 'src/database/database.module';
 @Module({
   imports: [DatabaseModule],
   controllers: [ObligacionPagoController],
-  providers: [ObligacionPagoService]
+  providers: [ObligacionPagoService],
 })
 export class ObligacionPagoModule {}

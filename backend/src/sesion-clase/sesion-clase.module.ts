@@ -6,6 +6,6 @@ import { DatabaseModule } from 'src/database/database.module';
 @Module({
   imports: [DatabaseModule],
   controllers: [SesionClaseController],
-  providers: [SesionClaseService]
+  providers: [SesionClaseService],
 })
 export class SesionClaseModule {}

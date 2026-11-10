@@ -9,7 +9,10 @@ import {
   Req,
 } from '@nestjs/common';
 import {
-  IsBoolean,
+  ArrayMinSize,
+  IsArray,
+  IsEmail,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -21,23 +24,26 @@ import {
 import { SeguridadService, UsuarioSesion } from './seguridad.service';
 
 class LoginDto {
-  @IsString() @Length(1, 50) username: string;
-  @IsString() @Length(1, 128) password: string;
+  @IsString() @Length(1, 50) usuario: string;
+  @IsString() @Length(1, 128) contrasena: string;
 }
 
 class SetupDto extends LoginDto {
-  @Matches(/\S/) @MaxLength(100) nombres: string;
-  @Matches(/\S/) @MaxLength(100) apellidos: string;
+  @IsOptional() @IsEmail() @MaxLength(150) email?: string;
   @IsString() @Length(1, 256) clave: string;
 }
 
 class UsuarioDto {
-  @Matches(/^\S+$/) @Length(1, 50) username: string;
-  @Matches(/\S/) @MaxLength(100) nombres: string;
-  @Matches(/\S/) @MaxLength(100) apellidos: string;
-  @IsInt() @Min(1) id_rol: number;
-  @IsBoolean() activo: boolean;
-  @IsOptional() @IsString() @Length(10, 128) password?: string;
+  @Matches(/^\S+$/) @Length(1, 50) usuario: string;
+  @IsOptional() @IsEmail() @MaxLength(150) email?: string | null;
+  @IsOptional() @IsInt() @Min(1) id_profesor?: number | null;
+  @IsIn(['ACTIVO', 'INACTIVO']) estado: 'ACTIVO' | 'INACTIVO';
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  roles: number[];
+  @IsOptional() @IsString() @Length(10, 128) contrasena?: string;
 }
 
 export interface AuthRequest {
@@ -57,7 +63,7 @@ export class SeguridadController {
   }
 
   @Post('login') login(@Body() body: LoginDto) {
-    return this.seguridad.login(body.username.trim(), body.password);
+    return this.seguridad.login(body.usuario.trim(), body.contrasena);
   }
 
   @Get('sesion') sesion(@Req() req: AuthRequest) {
@@ -65,7 +71,7 @@ export class SeguridadController {
   }
 
   @Post('logout') logout(@Req() req: AuthRequest) {
-    return this.seguridad.logout(req.token, req.usuario.id_usuario);
+    return this.seguridad.logout(req.usuario.id_usuario);
   }
 
   @Get('usuarios') usuarios() {

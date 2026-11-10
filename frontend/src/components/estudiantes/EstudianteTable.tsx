@@ -60,7 +60,7 @@ function EstudianteTable({
                             {estudiante.nombres} {estudiante.apellidos}
                           </div>
                           <div className="text-xs text-blue-900/70 font-mono">
-                            {estudiante.codigo_estudiante}
+                            {estudiante.codigo}
                           </div>
                         </div>
                       </div>

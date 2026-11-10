@@ -6,6 +6,6 @@ import { DatabaseModule } from 'src/database/database.module';
 @Module({
   imports: [DatabaseModule],
   controllers: [ProrrogaController],
-  providers: [ProrrogaService]
+  providers: [ProrrogaService],
 })
 export class ProrrogaModule {}

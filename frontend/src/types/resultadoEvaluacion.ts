@@ -5,10 +5,10 @@ export interface ResultadoEvaluacionItem {
   id_inscripcion: number;
   nota: number | null;
   estado_resultado: "CALIFICADO" | "NO_SE_PRESENTO";
-  tipo_evaluacion?: string;
+  tipo?: "EXAMEN" | "TAREA" | "PROYECTO";
   id_sesion?: number;
   id_estudiante?: number;
-  codigo_estudiante?: string;
+  codigo?: string;
   nombres?: string;
   apellidos?: string;
 }

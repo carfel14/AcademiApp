@@ -3,210 +3,95 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-
+import * as sql from 'mssql';
+import { FECHA_FIN_ESTIMADA, fechaISO } from 'src/database/consultas';
 import { DatabaseService } from 'src/database/database.service';
-
 import { CreateGrupoDto } from './dto/create-grupo.dto';
 import { UpdateGrupoDto } from './dto/update_grupo.dto';
+
+/**
+ * GRUPO -> PLAN_ESTUDIO -> CURSO. `fecha_fin` es la fecha real de cierre
+ * (NULL mientras el grupo está EN_CURSO); `fecha_fin_estimada` se calcula
+ * como DATEADD(MONTH, duracion_meses, fecha_inicio).
+ */
+const SELECT_GRUPO = `
+  SELECT g.*, p.id_curso, c.nombre AS curso, p.nombre AS plan_estudio, p.version,
+    ${FECHA_FIN_ESTIMADA('g')} AS fecha_fin_estimada,
+    (SELECT COUNT(*) FROM INSCRIPCION i WHERE i.id_grupo = g.id_grupo AND i.estado = 'ACTIVA') AS inscritos,
+    (SELECT COUNT(DISTINCT a.id_profesor) FROM ASIGNACION_PROFESOR a WHERE a.id_grupo = g.id_grupo) AS profesores_asignados
+  FROM GRUPO g
+  JOIN PLAN_ESTUDIO p ON p.id_plan = g.id_plan
+  JOIN CURSO c ON c.id_curso = p.id_curso`;
 
 @Injectable()
 export class GrupoService {
   constructor(private readonly databaseService: DatabaseService) {}
 
-  // ============================================================
-  // OBTENER TODOS LOS GRUPOS
-  // ============================================================
-
   async getGrupos() {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().query(`
-      SELECT *
-      FROM grupo
-      WHERE estado IN ('ACTIVO', 'FINALIZADO')
-      ORDER BY fecha_inicio;
+    const result = await this.databaseService.getPool().request().query(`
+      ${SELECT_GRUPO}
+      WHERE g.estado IN ('EN_CURSO', 'FINALIZADO')
+      ORDER BY g.fecha_inicio, g.id_grupo
     `);
-
     return result.recordset;
   }
 
-  // ============================================================
-  // OBTENER UN GRUPO
-  // ============================================================
-
-  async getGrupo(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id', id).query(`
-        SELECT *
-        FROM grupo
-        WHERE id_grupo = @id;
-      `);
-
-    if (result.recordset.length === 0) {
+  async getGrupo(
+    id: number,
+    request = this.databaseService.getPool().request(),
+  ) {
+    const result = await request.input('id', sql.Int, id).query(`
+      ${SELECT_GRUPO} WHERE g.id_grupo = @id
+    `);
+    if (!result.recordset.length)
       throw new NotFoundException(`El grupo con id ${id} no fue encontrado.`);
-    }
-
     return result.recordset[0];
   }
-
-  // ============================================================
-  // CREAR GRUPO
-  // ============================================================
 
   async createGrupo(grupo: CreateGrupoDto) {
     const pool = this.databaseService.getPool();
-
-    // ----------------------------------------------------------
-    // Validar duración
-    // ----------------------------------------------------------
-
-    if (!Number.isInteger(grupo.duracion_meses) || grupo.duracion_meses <= 0) {
-      throw new BadRequestException(
-        'La duración del grupo debe ser un número entero mayor que 0.',
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Verificar curso
-    // ----------------------------------------------------------
-
-    const curso = await pool.request().input('id_curso', grupo.id_curso).query(`
-        SELECT
-          id_curso,
-          estado
-        FROM curso
-        WHERE id_curso = @id_curso;
-      `);
-
-    if (curso.recordset.length === 0) {
+    const plan = await pool.request().input('id', sql.Int, grupo.id_plan)
+      .query(`
+      SELECT p.estado, c.estado AS estado_curso
+      FROM PLAN_ESTUDIO p JOIN CURSO c ON c.id_curso = p.id_curso
+      WHERE p.id_plan = @id
+    `);
+    if (!plan.recordset.length)
       throw new NotFoundException(
-        `El curso con id ${grupo.id_curso} no fue encontrado.`,
+        `El plan de estudio con id ${grupo.id_plan} no fue encontrado.`,
       );
-    }
-
-    if (curso.recordset[0].estado !== 'ACTIVO') {
+    if (plan.recordset[0].estado_curso !== 'ACTIVO')
       throw new BadRequestException(
         'No se puede crear un grupo para un curso que no está activo.',
       );
-    }
+    if (plan.recordset[0].estado !== 'ACTIVO')
+      throw new BadRequestException(
+        'No se puede crear un grupo con un plan de estudio inactivo.',
+      );
 
-    // ----------------------------------------------------------
-    // Validar fecha de inicio
-    // ----------------------------------------------------------
-
-    const fechaInicio = this.crearFecha(grupo.fecha_inicio);
-
-    if (!fechaInicio) {
-      throw new BadRequestException('La fecha de inicio no es válida.');
-    }
-
-    // ----------------------------------------------------------
-    // Calcular fecha de finalización
-    //
-    // fecha_fin ES INCLUSIVA.
-    //
-    // Ejemplo:
-    // 23/08/2026 + 1 mes = 22/09/2026
-    // ----------------------------------------------------------
-
-    const fechaFin = new Date(fechaInicio);
-
-    fechaFin.setMonth(fechaFin.getMonth() + grupo.duracion_meses);
-
-    fechaFin.setDate(fechaFin.getDate() - 1);
-
-    const fechaFinSql = this.formatearFecha(fechaFin);
-
-    // ----------------------------------------------------------
-    // Crear grupo
-    // ----------------------------------------------------------
-
-    const result = await pool
+    const { recordset } = await pool
       .request()
-      .input('id_curso', grupo.id_curso)
-      .input('nombre_grupo', grupo.nombre_grupo)
-      .input('fecha_inicio', this.formatearFecha(fechaInicio))
-      .input('duracion_meses', grupo.duracion_meses)
-      .input('fecha_fin', fechaFinSql).query(`
-        INSERT INTO grupo (
-          id_curso,
-          nombre_grupo,
-          fecha_inicio,
-          duracion_meses,
-          fecha_fin
-        )
-        OUTPUT INSERTED.*
-        VALUES (
-          @id_curso,
-          @nombre_grupo,
-          @fecha_inicio,
-          @duracion_meses,
-          @fecha_fin
-        );
+      .input('id_plan', sql.Int, grupo.id_plan)
+      .input('nombre', sql.NVarChar(100), grupo.nombre.trim())
+      .input('fecha_inicio', sql.VarChar(10), grupo.fecha_inicio.slice(0, 10))
+      .input('duracion_meses', sql.TinyInt, grupo.duracion_meses).query(`
+        INSERT INTO GRUPO (id_plan, nombre, fecha_inicio, duracion_meses)
+        OUTPUT INSERTED.id_grupo
+        VALUES (@id_plan, @nombre, CONVERT(DATE, @fecha_inicio, 23), @duracion_meses);
       `);
-
-    return result.recordset[0];
+    return this.getGrupo(recordset[0].id_grupo);
   }
 
-  // ============================================================
-  // ACTUALIZAR GRUPO
-  // ============================================================
-
   async updateGrupo(id: number, grupo: UpdateGrupoDto) {
-    const pool = this.databaseService.getPool();
-
-    // ----------------------------------------------------------
-    // Verificar existencia
-    // ----------------------------------------------------------
-
-    const existente = await pool.request().input('id', id).query(`
-        SELECT *
-        FROM grupo
-        WHERE id_grupo = @id;
-      `);
-
-    if (existente.recordset.length === 0) {
-      throw new NotFoundException(`El grupo con id ${id} no fue encontrado.`);
-    }
-
-    const grupoActual = existente.recordset[0];
-
-    // ----------------------------------------------------------
-    // Solo grupos activos
-    // ----------------------------------------------------------
-
-    if (grupoActual.estado !== 'ACTIVO') {
+    const actual = await this.getGrupo(id);
+    if (actual.estado !== 'EN_CURSO') {
       throw new BadRequestException(
         'No se puede modificar un grupo que ya fue finalizado o cancelado.',
       );
     }
-
-    // ----------------------------------------------------------
-    // Verificar si el grupo ya inició
-    // ----------------------------------------------------------
-
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-
-    const fechaInicioActual = this.crearFecha(
-      this.formatearFechaDesdeValor(grupoActual.fecha_inicio),
-    );
-
-    if (!fechaInicioActual) {
-      throw new BadRequestException(
-        'El grupo tiene una fecha de inicio inválida.',
-      );
-    }
-
-    const grupoYaIniciado = fechaInicioActual <= hoy;
-
-    // ----------------------------------------------------------
-    // No modificar configuración después de iniciado
-    // ----------------------------------------------------------
-
+    const hoy = await this.hoy();
     if (
-      grupoYaIniciado &&
+      fechaISO(actual.fecha_inicio)! <= hoy &&
       (grupo.fecha_inicio !== undefined || grupo.duracion_meses !== undefined)
     ) {
       throw new BadRequestException(
@@ -214,364 +99,85 @@ export class GrupoService {
       );
     }
 
-    // ----------------------------------------------------------
-    // Validar nueva duración
-    // ----------------------------------------------------------
-
-    if (
-      grupo.duracion_meses !== undefined &&
-      (!Number.isInteger(grupo.duracion_meses) || grupo.duracion_meses <= 0)
-    ) {
-      throw new BadRequestException(
-        'La duración del grupo debe ser un número entero mayor que 0.',
+    const campos: string[] = [];
+    const request = this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id);
+    if (grupo.nombre !== undefined) {
+      campos.push('nombre = @nombre');
+      request.input('nombre', sql.NVarChar(100), grupo.nombre.trim());
+    }
+    if (grupo.fecha_inicio !== undefined) {
+      campos.push('fecha_inicio = CONVERT(DATE, @fecha_inicio, 23)');
+      request.input(
+        'fecha_inicio',
+        sql.VarChar(10),
+        grupo.fecha_inicio.slice(0, 10),
       );
     }
-
-    // ----------------------------------------------------------
-    // Construir actualización
-    // ----------------------------------------------------------
-
-    const campos: string[] = [];
-
-    const request = pool.request();
-
-    request.input('id', id);
-
-    // ----------------------------------------------------------
-    // Nombre
-    // ----------------------------------------------------------
-
-    if (grupo.nombre_grupo !== undefined) {
-      campos.push('nombre_grupo = @nombre_grupo');
-
-      request.input('nombre_grupo', grupo.nombre_grupo);
-    }
-
-    // ----------------------------------------------------------
-    // Mantener valores actuales
-    // ----------------------------------------------------------
-
-    let nuevaFechaInicio = this.formatearFechaDesdeValor(
-      grupoActual.fecha_inicio,
-    );
-
-    let nuevaDuracion = grupoActual.duracion_meses;
-
-    // ----------------------------------------------------------
-    // Nueva fecha de inicio
-    // ----------------------------------------------------------
-
-    if (grupo.fecha_inicio !== undefined) {
-      const fechaValidada = this.crearFecha(grupo.fecha_inicio);
-
-      if (!fechaValidada) {
-        throw new BadRequestException('La fecha de inicio no es válida.');
-      }
-
-      nuevaFechaInicio = this.formatearFecha(fechaValidada);
-
-      campos.push('fecha_inicio = @fecha_inicio');
-
-      request.input('fecha_inicio', nuevaFechaInicio);
-    }
-
-    // ----------------------------------------------------------
-    // Nueva duración
-    // ----------------------------------------------------------
-
     if (grupo.duracion_meses !== undefined) {
-      nuevaDuracion = grupo.duracion_meses;
-
       campos.push('duracion_meses = @duracion_meses');
-
-      request.input('duracion_meses', grupo.duracion_meses);
+      request.input('duracion_meses', sql.TinyInt, grupo.duracion_meses);
     }
+    if (!campos.length) return actual;
 
-    // ----------------------------------------------------------
-    // Recalcular fecha_fin
-    //
-    // fecha_fin es inclusiva.
-    // ----------------------------------------------------------
-
-    if (
-      grupo.fecha_inicio !== undefined ||
-      grupo.duracion_meses !== undefined
-    ) {
-      const nuevaFecha = this.crearFecha(nuevaFechaInicio);
-
-      if (!nuevaFecha) {
-        throw new BadRequestException('La fecha de inicio no es válida.');
-      }
-
-      nuevaFecha.setMonth(nuevaFecha.getMonth() + nuevaDuracion);
-
-      nuevaFecha.setDate(nuevaFecha.getDate() - 1);
-
-      const nuevaFechaFin = this.formatearFecha(nuevaFecha);
-
-      campos.push('fecha_fin = @fecha_fin');
-
-      request.input('fecha_fin', nuevaFechaFin);
-    }
-
-    // ----------------------------------------------------------
-    // No hay nada que actualizar
-    // ----------------------------------------------------------
-
-    if (campos.length === 0) {
-      return {
-        mensaje: 'No se proporcionaron datos para actualizar.',
-      };
-    }
-
-    // ----------------------------------------------------------
-    // Ejecutar actualización
-    // ----------------------------------------------------------
-
-    await request.query(`
-      UPDATE grupo
-      SET ${campos.join(', ')}
-      WHERE id_grupo = @id;
-    `);
-
-    // ----------------------------------------------------------
-    // Obtener actualizado
-    // ----------------------------------------------------------
-
-    const actualizado = await pool.request().input('id', id).query(`
-        SELECT *
-        FROM grupo
-        WHERE id_grupo = @id;
-      `);
-
-    if (actualizado.recordset.length === 0) {
-      throw new NotFoundException(`El grupo con id ${id} no fue encontrado.`);
-    }
-
-    return actualizado.recordset[0];
-  }
-
-  // ============================================================
-  // CANCELAR GRUPO
-  // ============================================================
-
-  async deleteGrupo(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id', id).query(`
-        SELECT *
-        FROM grupo
-        WHERE id_grupo = @id;
-      `);
-
-    if (result.recordset.length === 0) {
-      throw new NotFoundException(`El grupo con id ${id} no fue encontrado.`);
-    }
-
-    const grupo = result.recordset[0];
-
-    if (grupo.estado !== 'ACTIVO') {
-      throw new BadRequestException('El grupo ya no se encuentra activo.');
-    }
-
-    // ----------------------------------------------------------
-    // Cancelar grupo
-    // ----------------------------------------------------------
-
-    await pool.request().input('id', id).query(`
-        UPDATE grupo
-        SET estado = 'CANCELADO'
-        WHERE id_grupo = @id;
-      `);
-
-    // ----------------------------------------------------------
-    // Actualizar estado del curso
-    // ----------------------------------------------------------
-
-    await this.actualizarEstadoCurso(grupo.id_curso);
-
-    return {
-      mensaje: 'Grupo cancelado correctamente.',
-    };
-  }
-
-  // ============================================================
-  // FINALIZAR GRUPO
-  // ============================================================
-
-  async finalizarGrupo(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id', id).query(`
-        SELECT *
-        FROM grupo
-        WHERE id_grupo = @id;
-      `);
-
-    if (result.recordset.length === 0) {
-      throw new NotFoundException(`El grupo con id ${id} no fue encontrado.`);
-    }
-
-    const grupo = result.recordset[0];
-
-    if (grupo.estado !== 'ACTIVO') {
-      throw new BadRequestException('El grupo ya no se encuentra activo.');
-    }
-
-    // ----------------------------------------------------------
-    // Finalizar grupo
-    // ----------------------------------------------------------
-
-    await pool.request().input('id', id).query(`
-        UPDATE grupo
-        SET estado = 'FINALIZADO'
-        WHERE id_grupo = @id;
-      `);
-
-    // ----------------------------------------------------------
-    // Finalizar inscripciones activas
-    // ----------------------------------------------------------
-
-    await pool.request().input('id_grupo', id).query(`
-        UPDATE inscripcion
-        SET estado_inscripcion = 'FINALIZADA'
-        WHERE id_grupo = @id_grupo
-          AND estado_inscripcion = 'ACTIVA';
-      `);
-
-    // ----------------------------------------------------------
-    // Cancelar sesiones programadas
-    // ----------------------------------------------------------
-
-    await pool.request().input('id_grupo', id).query(`
-        UPDATE sesion_clase
-        SET estado_sesion = 'CANCELADA'
-        WHERE id_grupo = @id_grupo
-          AND estado_sesion = 'PROGRAMADA';
-      `);
-
-    // ----------------------------------------------------------
-    // Actualizar estado del curso
-    // ----------------------------------------------------------
-
-    await this.actualizarEstadoCurso(grupo.id_curso);
-
-    return {
-      mensaje: 'Grupo finalizado correctamente.',
-    };
-  }
-
-  // ============================================================
-  // ACTUALIZAR ESTADO DEL CURSO
-  // ============================================================
-
-  private async actualizarEstadoCurso(idCurso: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id_curso', idCurso).query(`
-        SELECT estado
-        FROM grupo
-        WHERE id_curso = @id_curso;
-      `);
-
-    const grupos = result.recordset;
-
-    // ----------------------------------------------------------
-    // Si todavía hay grupos activos,
-    // el curso permanece activo.
-    // ----------------------------------------------------------
-
-    const hayActivos = grupos.some((grupo) => grupo.estado === 'ACTIVO');
-
-    if (hayActivos) {
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // Si todos los grupos terminaron/cancelaron,
-    // determinar estado del curso.
-    // ----------------------------------------------------------
-
-    const hayFinalizados = grupos.some(
-      (grupo) => grupo.estado === 'FINALIZADO',
+    await request.query(
+      `UPDATE GRUPO SET ${campos.join(', ')} WHERE id_grupo = @id`,
     );
+    return this.getGrupo(id);
+  }
 
-    const nuevoEstado = hayFinalizados ? 'FINALIZADO' : 'CANCELADO';
-
-    await pool.request().input('id_curso', idCurso).input('estado', nuevoEstado)
-      .query(`
-        UPDATE curso
-        SET estado = @estado
-        WHERE id_curso = @id_curso;
+  /** Cancela el grupo. fecha_fin registra el cierre si el grupo ya había iniciado. */
+  async deleteGrupo(id: number) {
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id).query(`
+        UPDATE GRUPO
+        SET estado = 'CANCELADO',
+          fecha_fin = CASE WHEN CAST(GETDATE() AS DATE) >= fecha_inicio
+            THEN CAST(GETDATE() AS DATE) ELSE NULL END
+        OUTPUT INSERTED.id_grupo
+        WHERE id_grupo = @id AND estado = 'EN_CURSO';
       `);
+    if (!result.recordset.length) {
+      await this.getGrupo(id);
+      throw new BadRequestException('El grupo ya no se encuentra en curso.');
+    }
+    return { mensaje: 'Grupo cancelado correctamente.', id_grupo: id };
   }
 
-  // ============================================================
-  // HELPER: CREAR FECHA SIN PROBLEMAS DE ZONA HORARIA
-  // ============================================================
+  /** Cierra el grupo: fecha_fin = hoy, inscripciones FINALIZADAS y sesiones pendientes CANCELADAS. */
+  async finalizarGrupo(id: number) {
+    return this.databaseService.transaction(async (tx) => {
+      const grupo = await this.getGrupo(id, tx.request());
+      if (grupo.estado !== 'EN_CURSO')
+        throw new BadRequestException('El grupo ya no se encuentra en curso.');
+      const hoy = await this.hoy(tx.request());
+      if (fechaISO(grupo.fecha_inicio)! > hoy)
+        throw new BadRequestException(
+          'No se puede finalizar un grupo que todavía no inicia.',
+        );
 
-  private crearFecha(fecha: string): Date | null {
-    if (!fecha) {
-      return null;
-    }
+      await tx.request().input('id', sql.Int, id).query(`
+        UPDATE GRUPO SET estado = 'FINALIZADO', fecha_fin = CAST(GETDATE() AS DATE)
+        WHERE id_grupo = @id;
 
-    const partes = fecha.substring(0, 10).split('-').map(Number);
+        UPDATE INSCRIPCION SET estado = 'FINALIZADA'
+        WHERE id_grupo = @id AND estado = 'ACTIVA';
 
-    if (partes.length !== 3) {
-      return null;
-    }
-
-    const [year, month, day] = partes;
-
-    if (
-      !year ||
-      !month ||
-      !day ||
-      month < 1 ||
-      month > 12 ||
-      day < 1 ||
-      day > 31
-    ) {
-      return null;
-    }
-
-    const resultado = new Date(year, month - 1, day);
-
-    // Evitar fechas como 2026-02-31
-    if (
-      resultado.getFullYear() !== year ||
-      resultado.getMonth() !== month - 1 ||
-      resultado.getDate() !== day
-    ) {
-      return null;
-    }
-
-    return resultado;
+        UPDATE SESION_CLASE SET estado = 'CANCELADA'
+        WHERE id_grupo = @id AND estado = 'PROGRAMADA';
+      `);
+      return { mensaje: 'Grupo finalizado correctamente.', id_grupo: id };
+    });
   }
 
-  // ============================================================
-  // HELPER: FORMATEAR FECHA
-  // ============================================================
-
-  private formatearFecha(fecha: Date): string {
-    const year = fecha.getFullYear();
-
-    const month = String(fecha.getMonth() + 1).padStart(2, '0');
-
-    const day = String(fecha.getDate()).padStart(2, '0');
-
-    return `${year}-${month}-${day}`;
-  }
-
-  // ============================================================
-  // HELPER: OBTENER YYYY-MM-DD
-  // ============================================================
-
-  private formatearFechaDesdeValor(valor: string | Date): string {
-    if (typeof valor === 'string') {
-      return valor.substring(0, 10);
-    }
-
-    return this.formatearFecha(valor);
+  private async hoy(request = this.databaseService.getPool().request()) {
+    const { recordset } = await request.query(
+      'SELECT CONVERT(VARCHAR(10), CAST(GETDATE() AS DATE), 23) AS hoy',
+    );
+    return recordset[0].hoy as string;
   }
 }

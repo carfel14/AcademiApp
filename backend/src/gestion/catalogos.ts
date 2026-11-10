@@ -45,7 +45,7 @@ interface Catalogo {
 }
 export const catalogos: Record<string, Catalogo> = {
   planes: {
-    table: 'plan_estudio',
+    table: 'PLAN_ESTUDIO',
     key: 'id_plan',
     parent: 'id_curso',
     sort: 'version',
@@ -58,7 +58,7 @@ export const catalogos: Record<string, Catalogo> = {
     ],
   },
   unidades: {
-    table: 'unidad_estudio',
+    table: 'UNIDAD_ESTUDIO',
     key: 'id_unidad',
     parent: 'id_plan',
     sort: 'orden',
@@ -70,7 +70,7 @@ export const catalogos: Record<string, Catalogo> = {
     ],
   },
   temas: {
-    table: 'tema_estudio',
+    table: 'TEMA_ESTUDIO',
     key: 'id_tema',
     parent: 'id_unidad',
     sort: 'orden',
@@ -84,7 +84,7 @@ export const catalogos: Record<string, Catalogo> = {
     ],
   },
   descuentos: {
-    table: 'descuento',
+    table: 'DESCUENTO',
     key: 'id_descuento',
     fields: [
       text('nombre', 100),
@@ -94,7 +94,7 @@ export const catalogos: Record<string, Catalogo> = {
     ],
   },
   plantillas: {
-    table: 'plantilla_notificacion',
+    table: 'PLANTILLA_NOTIFICACION',
     key: 'id_plantilla',
     fields: [
       text('nombre', 100),
@@ -105,7 +105,7 @@ export const catalogos: Record<string, Catalogo> = {
     ],
   },
   reglas: {
-    table: 'regla_recordatorio',
+    table: 'REGLA_RECORDATORIO',
     key: 'id_regla',
     fields: [
       integer('id_plantilla'),

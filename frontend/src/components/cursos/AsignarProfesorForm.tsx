@@ -28,8 +28,8 @@ function AsignarProfesorForm({
   function haySolapamiento(horario: Horario, otroHorario: Horario) {
     return (
       horario.dia_semana === otroHorario.dia_semana &&
-      horario.hora_inicio < otroHorario.hora_fin &&
-      horario.hora_fin > otroHorario.hora_inicio
+      horario.hora_inicio < otroHorario.hora_finalizacion &&
+      horario.hora_finalizacion > otroHorario.hora_inicio
     );
   }
 
@@ -108,7 +108,7 @@ function AsignarProfesorForm({
           <option value="">Selecciona un grupo</option>
           {grupos.map((grupo) => (
             <option key={grupo.id_grupo} value={grupo.id_grupo}>
-              {grupo.nombre_grupo}
+              {grupo.nombre}
             </option>
           ))}
         </select>
@@ -128,7 +128,7 @@ function AsignarProfesorForm({
           {profesores.map((profesor) => (
             <option key={profesor.id_profesor} value={profesor.id_profesor}>
               {profesor.nombres} {profesor.apellidos}
-              {profesor.especialidad ? ` - ${profesor.especialidad}` : ""}
+              {profesor.especialidades.length ? ` - ${profesor.especialidades.map((e) => e.nombre).join(", ")}` : ""}
             </option>
           ))}
         </select>

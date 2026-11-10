@@ -8,11 +8,11 @@ import type { ProrrogaItem } from "../../types/prorroga";
 import { Catalog, EditForm, Heading, Select, Status, Table, type Field, type Row } from "./ui";
 import { date, label, money, options, today, useData } from "./datos";
 
-type Obligacion = ObligacionPagoItem & { vencimiento_efectivo: string; monto_ajustado: number; total_descuento: number; total_recargo: number };
+type Obligacion = ObligacionPagoItem;
 type Pago = { id_pago: number; fecha_pago: string; monto_pagado: number; metodo_pago: string; observacion: string | null };
-type Cuenta = { obligacion: Obligacion; pagos: Pago[]; prorroga: ProrrogaItem | null; descuentos: Row[]; recargos: Row[] };
+type Cuenta = { obligacion: Obligacion; pagos: Pago[]; prorrogas: ProrrogaItem[]; descuentos: Row[]; recargos: Row[] };
 const estado: Field = { name: "estado", label: "Estado", options: options(["ACTIVO", "INACTIVO"]) };
-const concepto = (o: Obligacion) => o.tipo_obligacion === "MATRICULA" ? "Matrícula" : `Mensualidad ${o.numero_cuota}`;
+const concepto = (o: Obligacion) => o.tipo === "MATRICULA" ? "Matrícula" : `Mensualidad ${o.numero_cuota}`;
 
 export function CobrosPage() {
   const [params, setParams] = useSearchParams();
@@ -25,15 +25,15 @@ export function CobrosPage() {
   const descuentos = useData<Row[]>("/cobros/catalogos/descuentos");
   const cuenta = useData<Cuenta>(id ? `/cobros/${id}` : null);
   const coincidencias = (inscripciones.data ?? []).filter(i =>
-    `${i.nombre_estudiante} ${i.apellido_estudiante} ${i.nombre_grupo} ${i.nombre_curso}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+    `${i.codigo} ${i.nombres} ${i.apellidos} ${i.grupo} ${i.curso}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
     || i.id_inscripcion === inscripcion);
   const [action, setAction] = useState<"pago" | "prórroga" | "descuento" | "recargo" | null>(null);
   const o = cuenta.data?.obligacion;
   const fields: Record<string, Field[]> = {
-    pago: [{ name: "monto_pagado", label: "Monto (C$)", type: "number", min: 0.01, max: o?.saldo_pendiente, step: "0.01" },
+    pago: [{ name: "monto_pagado", label: "Monto (C$)", type: "number", min: 0.01, max: o?.saldo_neto, step: "0.01" },
       { name: "fecha_pago", label: "Fecha del pago", type: "date", max: today() },
       { name: "metodo_pago", label: "Método de pago", options: options(["EFECTIVO", "TRANSFERENCIA", "TARJETA"]) }],
-    "prórroga": [{ name: "fecha_inicio", label: "Desde", type: "date" }, { name: "fecha_fin", label: "Hasta", type: "date" }],
+    "prórroga": [{ name: "fecha_inicio", label: "Desde", type: "date" }, { name: "fecha_finalizacion", label: "Hasta", type: "date" }],
     descuento: [{ name: "id_descuento", label: "Descuento", options: (descuentos.data ?? []).filter(d => d.estado === "ACTIVO")
       .map(d => ({ value: Number(d.id_descuento), label: `${d.nombre} · ${d.tipo === "PORCENTAJE" ? `${d.valor}%` : money(Number(d.valor))}` })) }],
     recargo: [{ name: "monto", label: "Monto (C$)", type: "number", min: 0.01, max: 99999999.99, step: "0.01" }, { name: "motivo", label: "Motivo", max: 200 }],
@@ -48,7 +48,7 @@ export function CobrosPage() {
         <div className="work-toolbar">
           <label className="work-filter">Buscar estudiante<input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Nombre o curso" /></label>
           <Select name="Inscripción" value={inscripcion || ""} onChange={value => setParams(value ? { inscripcion: value } : {})}
-            items={coincidencias.map(i => ({ value: i.id_inscripcion, label: `${i.nombre_estudiante} ${i.apellido_estudiante} · ${i.nombre_grupo}` }))} />
+            items={coincidencias.map(i => ({ value: i.id_inscripcion, label: `${i.nombres} ${i.apellidos} · ${i.grupo}` }))} />
         </div>
         <Status {...inscripciones} retry={inscripciones.reload} />
         {!inscripcion && inscripciones.data && <p className="work-muted">{coincidencias.length ? "Selecciona la inscripción que quieres consultar." : "No hay inscripciones que coincidan."}</p>}
@@ -56,11 +56,11 @@ export function CobrosPage() {
         {obligaciones.data && <section className="work-section"><h2>Obligaciones de pago</h2>
           <Table rows={obligaciones.data} rowKey={row => row.id_obligacion} columns={[
             { label: "Concepto", cell: concepto },
-            { label: "Vencimiento", cell: row => date(row.vencimiento_efectivo) },
-            { label: "Total", numeric: true, cell: row => money(row.monto_ajustado) },
-            { label: "Pagado", numeric: true, cell: row => money(row.total_pagado) },
-            { label: "Saldo", numeric: true, cell: row => money(row.saldo_pendiente) },
-            { label: "Estado", cell: row => <span className="work-tag">{row.estado === "PENDIENTE" && date(row.vencimiento_efectivo) < today() ? "Vencida" : label(row.estado)}</span> },
+            { label: "Vencimiento", cell: row => date(row.fecha_vencimiento_efectiva) },
+            { label: "Total", numeric: true, cell: row => money(Number(row.saldo_neto) + Number(row.pagado)) },
+            { label: "Pagado", numeric: true, cell: row => money(row.pagado) },
+            { label: "Saldo", numeric: true, cell: row => money(row.saldo_neto) },
+            { label: "Estado", cell: row => <span className="work-tag">{row.estado === "PENDIENTE" && row.dias_mora > 0 ? `Vencida (${row.dias_mora} días)` : label(row.estado)}</span> },
             { label: "Acción", cell: row => <button className="work-link" onClick={() => setParams({ inscripcion: String(inscripcion), obligacion: String(row.id_obligacion) })}>Ver detalle</button> },
           ]} />
         </section>}
@@ -70,16 +70,17 @@ export function CobrosPage() {
           {cuenta.data && o && <>
             <dl className="work-summary">
               <div><dt>Monto original</dt><dd>{money(o.monto)}</dd></div>
-              <div><dt>Descuentos</dt><dd>{money(o.total_descuento)}</dd></div>
-              <div><dt>Recargos</dt><dd>{money(o.total_recargo)}</dd></div>
-              <div><dt>Saldo pendiente</dt><dd>{money(o.saldo_pendiente)}</dd></div>
+              <div><dt>Descuentos</dt><dd>{money(o.descuentos)}</dd></div>
+              <div><dt>Recargos</dt><dd>{money(o.recargos)}</dd></div>
+              <div><dt>Saldo pendiente</dt><dd>{money(o.saldo_neto)}</dd></div>
             </dl>
-            {cuenta.data.prorroga && <p className="work-muted">Prórroga del {date(cuenta.data.prorroga.fecha_inicio)} al {date(cuenta.data.prorroga.fecha_fin)}.</p>}
-            {cuenta.data.descuentos.length > 0 && <p className="work-muted">Descuentos aplicados · {cuenta.data.descuentos.map(d => d.nombre).join(", ")}</p>}
+            <p className="work-muted">Vence el {date(o.fecha_vencimiento_efectiva)}{o.dias_mora > 0 ? ` · ${o.dias_mora} días de mora` : ""}.</p>
+            {cuenta.data.prorrogas.length > 0 && <p className="work-muted">Prórrogas · {cuenta.data.prorrogas.map(p => `del ${date(p.fecha_inicio)} al ${date(p.fecha_finalizacion)}`).join("; ")}</p>}
+            {cuenta.data.descuentos.length > 0 && <p className="work-muted">Descuentos aplicados · {cuenta.data.descuentos.map(d => `${d.nombre} (${money(Number(d.monto_descontado))})`).join(", ")}</p>}
             {cuenta.data.recargos.length > 0 && <p className="work-muted">Recargos · {cuenta.data.recargos.map(r => `${r.motivo} (${money(Number(r.monto))})`).join(", ")}</p>}
             {o.estado === "PENDIENTE" && <div className="work-inline my-4">
               <button className="work-primary" onClick={() => setAction("pago")}>Registrar abono</button>
-              <button className="work-secondary" onClick={() => setAction("prórroga")}>{cuenta.data.prorroga ? "Editar prórroga" : "Conceder prórroga"}</button>
+              <button className="work-secondary" onClick={() => setAction("prórroga")}>Conceder prórroga</button>
               <button className="work-secondary" onClick={() => { descuentos.reload(); setAction("descuento"); }}>Aplicar descuento</button>
               <button className="work-secondary" onClick={() => setAction("recargo")}>Agregar recargo</button>
             </div>}
@@ -88,12 +89,11 @@ export function CobrosPage() {
               {action === "descuento" && <Status {...descuentos} retry={descuentos.reload} />}
               {action === "descuento" && descuentos.data && !fields.descuento[0].options?.length
                 ? <p className="work-muted">Crea un descuento activo en el catálogo para aplicarlo.</p>
-                : <EditForm key={action} fields={[...fields[action], ...(["pago", "prórroga"].includes(action) ? [{ name: "observacion", label: "Observación", type: "textarea" as const, required: false }] : [])]}
-                  initial={action === "pago" ? { fecha_pago: today() } : action === "prórroga" && cuenta.data.prorroga ? { ...cuenta.data.prorroga } : {}}
+                : <EditForm key={action} fields={[...fields[action], ...(action !== "recargo" ? [{ name: "observacion", label: "Observación", type: "textarea" as const, max: 500, required: false }] : [])]}
+                  initial={action === "pago" ? { fecha_pago: today() } : {}}
                   onSave={async data => {
-                    const prorroga = cuenta.data?.prorroga;
                     if (action === "pago") await api("/pagos", "POST", { ...data, id_obligacion: id });
-                    else if (action === "prórroga") await api(prorroga ? `/prorrogas/${prorroga.id_prorroga}` : "/prorrogas", prorroga ? "PATCH" : "POST", { ...data, id_obligacion: id });
+                    else if (action === "prórroga") await api("/prorrogas", "POST", { ...data, id_obligacion: id });
                     else await api(`/cobros/${id}/${action}`, "POST", data);
                     setAction(null); cuenta.reload(); obligaciones.reload();
                   }} />}
@@ -118,7 +118,7 @@ export function RecordatoriosPage() {
   const lista = useData<Row[]>(tab === "generados" ? "/recordatorios" : null);
   const plantillas = useData<Row[]>(tab === "reglas" ? "/recordatorios/catalogos/plantillas" : null);
   return <>
-    <Heading title="Recordatorios" detail="Configura y registra avisos de vencimiento. El registro queda disponible para revisión." />
+    <Heading title="Recordatorios" detail="Genera avisos de cobro con sp_generar_recordatorios según las reglas activas y el canal preferido de cada estudiante." />
     <div className="work-tabs" aria-label="Vista de recordatorios">
       {[["generados", "Generados"], ["plantillas", "Plantillas"], ["reglas", "Reglas"]].map(([value, title]) =>
         <button key={value} type="button" aria-pressed={tab === value} onClick={() => setTab(value)}>{title}</button>)}
@@ -137,7 +137,8 @@ export function RecordatoriosPage() {
     </>}
     {tab === "generados" && <>
       <section className="work-section"><h2>Generar por fecha</h2>
-        <EditForm fields={[{ name: "fecha", label: "Fecha programada", type: "date" }]} initial={{ fecha: today() }}
+        <p className="work-muted">Se generan los avisos cuya fecha de envío (vencimiento + días de la regla) coincide con la fecha elegida.</p>
+        <EditForm fields={[{ name: "fecha", label: "Fecha de envío", type: "date" }]} initial={{ fecha: today() }}
           saveLabel="Generar recordatorios" onSave={async data => {
             const result = await api<{ total: number }>("/recordatorios/generar", "POST", data);
             setNotice(result.total ? `Recordatorios generados: ${result.total}.` : "No hay recordatorios nuevos para esa fecha.");
@@ -150,10 +151,15 @@ export function RecordatoriosPage() {
         {lista.data && <Table rows={lista.data} rowKey={n => Number(n.id_notificacion)} columns={[
           { label: "Fecha", cell: n => date(String(n.fecha_programada)) }, { label: "Estudiante", cell: n => n.estudiante },
           { label: "Plantilla", cell: n => n.plantilla }, { label: "Destino", cell: n => <>{n.destino}<small className="block work-muted">{n.canal}</small></> },
-          { label: "Estado", cell: n => <span className="work-tag">{label(String(n.estado_envio))}</span> },
+          { label: "Estado", cell: n => <><span className="work-tag">{label(String(n.estado_envio))}</span>
+            <small className="block work-muted">{Number(n.intentos)} intento(s){n.error ? ` · ${n.error}` : ""}</small></> },
           { label: "Acciones", cell: n => <div className="work-inline">
             {n.id_obligacion && <Link className="work-link" to={`/cobros?inscripcion=${n.id_inscripcion}&obligacion=${n.id_obligacion}`}>Ver cobro</Link>}
-            {n.estado_envio === "PENDIENTE" && <button className="work-link" onClick={() => setCancela(n)}>Cancelar</button>}
+            {n.estado_envio === "PENDIENTE" && <>
+              <button className="work-link" onClick={() => void api(`/recordatorios/${n.id_notificacion}/envio`, "PATCH", { exito: true }).then(lista.reload)}>Marcar enviado</button>
+              <button className="work-link" onClick={() => void api(`/recordatorios/${n.id_notificacion}/envio`, "PATCH", { exito: false, error: "Envío fallido registrado manualmente." }).then(lista.reload)}>Marcar fallido</button>
+              <button className="work-link" onClick={() => setCancela(n)}>Cancelar</button>
+            </>}
           </div> },
         ]} />}
       </section>

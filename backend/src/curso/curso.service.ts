@@ -3,356 +3,153 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-
-import { DatabaseService } from 'src/database/database.service';
-
 import * as sql from 'mssql';
-
+import { DatabaseService } from 'src/database/database.service';
 import { CreateCursoDto } from './dto/create-curso.dto';
 import { UpdateCursoDto } from './dto/update-curso.dto';
 
+const SELECT_CURSO = `
+  SELECT c.*,
+    (SELECT COUNT(*) FROM PLAN_ESTUDIO p WHERE p.id_curso = c.id_curso) AS planes
+  FROM CURSO c`;
+
 @Injectable()
 export class CursoService {
-  constructor(
-    private readonly databaseService: DatabaseService,
-  ) {}
-
-  // ============================================================
-  // OBTENER TODOS LOS CURSOS
-  // ============================================================
+  constructor(private readonly databaseService: DatabaseService) {}
 
   async getCursos() {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().query(`
-      SELECT *
-      FROM curso
-      WHERE estado IN ('ACTIVO', 'FINALIZADO')
+    const result = await this.databaseService.getPool().request().query(`
+      ${SELECT_CURSO} WHERE c.estado = 'ACTIVO' ORDER BY c.nombre
     `);
-
     return result.recordset;
   }
 
-  // ============================================================
-  // OBTENER UN CURSO
-  // ============================================================
-
-  async getCurso(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool
-      .request()
-      .input('id', sql.Int, id)
-      .query(`
-        SELECT *
-        FROM curso
-        WHERE id_curso = @id
-      `);
-
-    if (result.recordset.length === 0) {
-      throw new NotFoundException(
-        `El curso con id ${id} no fue encontrado.`,
-      );
-    }
-
+  async getCurso(
+    id: number,
+    request = this.databaseService.getPool().request(),
+  ) {
+    const result = await request.input('id', sql.Int, id).query(`
+      ${SELECT_CURSO} WHERE c.id_curso = @id
+    `);
+    if (!result.recordset.length)
+      throw new NotFoundException(`El curso con id ${id} no fue encontrado.`);
     return result.recordset[0];
   }
 
-  // ============================================================
-  // CREAR CURSO
-  // ============================================================
-
+  /**
+   * GRUPO se relaciona con el curso a través de PLAN_ESTUDIO, así que cada
+   * curso nuevo recibe su plan de estudio versión 1.
+   */
   async createCurso(curso: CreateCursoDto) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool
-      .request()
-      .input(
-        'nombre_curso',
-        sql.VarChar(150),
-        curso.nombre_curso,
-      )
-      .input(
-        'descripcion',
-        sql.VarChar(sql.Max),
-        curso.descripcion ?? null,
-      )
-      .input(
-        'precio',
-        sql.Numeric(10, 2),
-        curso.precio,
-      )
-      .input(
-        'precio_matricula',
-        sql.Numeric(10, 2),
-        curso.precio_matricula ?? 0,
-      )
-      .query(`
-        INSERT INTO curso (
-          nombre_curso,
-          descripcion,
-          precio,
-          precio_matricula
-        )
-        OUTPUT INSERTED.*
-        VALUES (
-          @nombre_curso,
-          @descripcion,
-          @precio,
-          @precio_matricula
-        );
-      `);
-
-    return result.recordset[0];
+    return this.databaseService.transaction(async (tx) => {
+      const { recordset } = await tx
+        .request()
+        .input('nombre', sql.NVarChar(100), curso.nombre.trim())
+        .input('descripcion', sql.NVarChar(500), curso.descripcion ?? null)
+        .input('precio_total', sql.Decimal(10, 2), curso.precio_total)
+        .input('precio_matricula', sql.Decimal(10, 2), curso.precio_matricula)
+        .query(`
+          INSERT INTO CURSO (nombre, descripcion, precio_total, precio_matricula)
+          OUTPUT INSERTED.id_curso
+          VALUES (@nombre, @descripcion, @precio_total, @precio_matricula);
+        `);
+      const id = recordset[0].id_curso as number;
+      await tx
+        .request()
+        .input('id', sql.Int, id)
+        .input(
+          'nombre',
+          sql.NVarChar(150),
+          `Plan de estudio - ${curso.nombre.trim()}`.slice(0, 150),
+        ).query(`
+          INSERT INTO PLAN_ESTUDIO (id_curso, nombre) VALUES (@id, @nombre);
+        `);
+      return this.getCurso(id, tx.request());
+    });
   }
-
-  // ============================================================
-  // ACTUALIZAR CURSO
-  // ============================================================
 
   async updateCurso(id: number, body: UpdateCursoDto) {
     const pool = this.databaseService.getPool();
-
-    // ----------------------------------------------------------
-    // Verificar existencia y estado
-    // ----------------------------------------------------------
-
-    const existente = await pool
-      .request()
-      .input('id', sql.Int, id)
-      .query(`
-        SELECT
-          id_curso,
-          estado
-        FROM curso
-        WHERE id_curso = @id
-      `);
-
-    if (existente.recordset.length === 0) {
-      throw new NotFoundException(
-        `El curso con id ${id} no fue encontrado.`,
-      );
-    }
-
-    const cursoActual = existente.recordset[0];
-
-    if (cursoActual.estado !== 'ACTIVO') {
+    const actual = await this.getCurso(id);
+    if (actual.estado !== 'ACTIVO') {
       throw new BadRequestException(
         'No se puede modificar un curso que no está activo.',
       );
     }
 
-    // ----------------------------------------------------------
-    // Verificar si existen inscripciones históricas
-    // ----------------------------------------------------------
-    //
-    // IMPORTANTE:
-    // No buscamos únicamente inscripciones ACTIVAS.
-    //
-    // Una vez que existe una inscripción, el precio del curso
-    // debe quedar congelado para proteger el historial financiero.
-    //
-    // Esto evita que:
-    //
-    // 1. Se inscriba un estudiante.
-    // 2. La inscripción termine.
-    // 3. Se cambie posteriormente el precio del curso.
-    //
-    // El precio original debe seguir siendo válido para las
-    // obligaciones generadas durante esa inscripción.
-    // ----------------------------------------------------------
-
-    const inscripciones = await pool
-      .request()
-      .input('id_curso', sql.Int, id)
-      .query(`
-        SELECT TOP 1
-          i.id_inscripcion
-        FROM inscripcion i
-        INNER JOIN grupo g
-          ON i.id_grupo = g.id_grupo
-        WHERE g.id_curso = @id_curso
-      `);
-
-    const tieneInscripciones =
-      inscripciones.recordset.length > 0;
-
-    // ----------------------------------------------------------
-    // No permitir modificar precios si ya existe una inscripción
-    // ----------------------------------------------------------
-
-    if (
-      tieneInscripciones &&
-      (
-        body.precio !== undefined ||
-        body.precio_matricula !== undefined
-      )
-    ) {
+    // Una vez que existe una inscripción, los precios quedan congelados para
+    // proteger las obligaciones ya generadas.
+    const inscripciones = await pool.request().input('id', sql.Int, id).query(`
+      SELECT TOP 1 i.id_inscripcion
+      FROM INSCRIPCION i
+      JOIN GRUPO g ON g.id_grupo = i.id_grupo
+      JOIN PLAN_ESTUDIO p ON p.id_plan = g.id_plan
+      WHERE p.id_curso = @id
+    `);
+    const cambiaPrecio =
+      (body.precio_total !== undefined &&
+        Number(body.precio_total) !== Number(actual.precio_total)) ||
+      (body.precio_matricula !== undefined &&
+        Number(body.precio_matricula) !== Number(actual.precio_matricula));
+    if (inscripciones.recordset.length && cambiaPrecio) {
       throw new BadRequestException(
-        'No se puede modificar el precio del curso ni el precio de matrícula porque ya existen inscripciones asociadas al curso.',
+        'No se puede modificar el precio total ni el precio de matrícula porque ya existen inscripciones asociadas al curso.',
       );
     }
-
-    // ----------------------------------------------------------
-    // Construir actualización dinámica
-    // ----------------------------------------------------------
 
     const campos: string[] = [];
-
-    const request = pool.request();
-
-    request.input('id', sql.Int, id);
-
-    // ----------------------------------------------------------
-    // Nombre
-    // ----------------------------------------------------------
-
-    if (body.nombre_curso !== undefined) {
-      campos.push('nombre_curso = @nombre_curso');
-
-      request.input(
-        'nombre_curso',
-        sql.VarChar(150),
-        body.nombre_curso,
-      );
+    const request = pool.request().input('id', sql.Int, id);
+    if (body.nombre !== undefined) {
+      campos.push('nombre = @nombre');
+      request.input('nombre', sql.NVarChar(100), body.nombre.trim());
     }
-
-    // ----------------------------------------------------------
-    // Descripción
-    // ----------------------------------------------------------
-
     if (body.descripcion !== undefined) {
       campos.push('descripcion = @descripcion');
-
-      request.input(
-        'descripcion',
-        sql.VarChar(sql.Max),
-        body.descripcion,
-      );
+      request.input('descripcion', sql.NVarChar(500), body.descripcion);
     }
-
-    // ----------------------------------------------------------
-    // Precio total del curso
-    // ----------------------------------------------------------
-
-    if (body.precio !== undefined) {
-      campos.push('precio = @precio');
-
-      request.input(
-        'precio',
-        sql.Numeric(10, 2),
-        body.precio,
-      );
+    if (body.precio_total !== undefined) {
+      campos.push('precio_total = @precio_total');
+      request.input('precio_total', sql.Decimal(10, 2), body.precio_total);
     }
-
-    // ----------------------------------------------------------
-    // Precio de matrícula
-    // ----------------------------------------------------------
-
     if (body.precio_matricula !== undefined) {
-      campos.push(
-        'precio_matricula = @precio_matricula',
-      );
-
+      campos.push('precio_matricula = @precio_matricula');
       request.input(
         'precio_matricula',
-        sql.Numeric(10, 2),
+        sql.Decimal(10, 2),
         body.precio_matricula,
       );
     }
+    if (!campos.length) return actual;
 
-    // ----------------------------------------------------------
-    // No hay nada que actualizar
-    // ----------------------------------------------------------
-
-    if (campos.length === 0) {
-      return {
-        mensaje: 'No se proporcionaron datos para actualizar.',
-      };
-    }
-
-    // ----------------------------------------------------------
-    // Ejecutar actualización
-    // ----------------------------------------------------------
-
-    await request.query(`
-      UPDATE curso
-      SET ${campos.join(', ')}
-      WHERE id_curso = @id
-    `);
-
-    // ----------------------------------------------------------
-    // Obtener curso actualizado
-    // ----------------------------------------------------------
-
-    const actualizado = await pool
-      .request()
-      .input('id', sql.Int, id)
-      .query(`
-        SELECT *
-        FROM curso
-        WHERE id_curso = @id
-      `);
-
-    if (actualizado.recordset.length === 0) {
-      throw new NotFoundException(
-        `El curso con id ${id} no fue encontrado.`,
-      );
-    }
-
-    return actualizado.recordset[0];
+    await request.query(
+      `UPDATE CURSO SET ${campos.join(', ')} WHERE id_curso = @id`,
+    );
+    return this.getCurso(id);
   }
 
-  // ============================================================
-  // CANCELAR CURSO
-  // ============================================================
-
+  /** Baja lógica: CURSO.estado solo admite ACTIVO o INACTIVO. */
   async deleteCurso(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const existente = await pool
-      .request()
-      .input('id', sql.Int, id)
-      .query(`
-        SELECT
-          id_curso,
-          estado
-        FROM curso
-        WHERE id_curso = @id
-      `);
-
-    if (existente.recordset.length === 0) {
-      throw new NotFoundException(
-        `El curso con id ${id} no fue encontrado.`,
-      );
+    const actual = await this.getCurso(id);
+    if (actual.estado !== 'ACTIVO') {
+      throw new BadRequestException('El curso ya está inactivo.');
     }
-
-    const curso = existente.recordset[0];
-
-    if (curso.estado !== 'ACTIVO') {
+    const grupos = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id).query(`
+        SELECT TOP 1 g.id_grupo FROM GRUPO g
+        JOIN PLAN_ESTUDIO p ON p.id_plan = g.id_plan
+        WHERE p.id_curso = @id AND g.estado = 'EN_CURSO'
+      `);
+    if (grupos.recordset.length) {
       throw new BadRequestException(
-        'No se puede cancelar un curso que no está activo.',
+        'El curso tiene grupos en curso. Finalízalos o cancélalos primero.',
       );
     }
-
-    await pool
-      .request()
-      .input('id', sql.Int, id)
+    await this.databaseService.getPool().request().input('id', sql.Int, id)
       .query(`
-        UPDATE curso
-        SET estado = 'CANCELADO'
-        WHERE id_curso = @id
-      `);
-
-    const result = await pool
-      .request()
-      .input('id', sql.Int, id)
-      .query(`
-        SELECT *
-        FROM curso
-        WHERE id_curso = @id
-      `);
-
-    return result.recordset[0];
+      UPDATE CURSO SET estado = 'INACTIVO' WHERE id_curso = @id
+    `);
+    return this.getCurso(id);
   }
 }

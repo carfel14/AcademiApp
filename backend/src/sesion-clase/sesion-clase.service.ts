@@ -3,34 +3,25 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-
+import * as sql from 'mssql';
 import type { Transaction } from 'mssql';
+import {
+  DIA_SEMANA,
+  FECHA_FIN_ESTIMADA,
+  HORA,
+  fechaISO,
+} from 'src/database/consultas';
 import { DatabaseService } from 'src/database/database.service';
-
+import { CreateContenidoDto, UpdateContenidoDto } from './dto/contenido.dto';
 import { CreateSesionClaseDto } from './dto/create-sesion-clase.dto';
+import { GenerarSesionesDto } from './dto/generar-sesiones.dto';
 import { UpdateSesionClaseDto } from './dto/update-sesion-clase.dto';
-
-// ============================================================
-// TIPOS INTERNOS
-// ============================================================
 
 interface GrupoSesion {
   id_grupo: number;
-  estado: 'ACTIVO' | 'FINALIZADO' | 'CANCELADO';
+  estado: 'EN_CURSO' | 'FINALIZADO' | 'CANCELADO';
   fecha_inicio: string | Date;
-  fecha_fin: string | Date;
-}
-
-interface HorarioGrupo {
-  id_horario: number;
-  dia_semana: string;
-  hora_inicio: string | Date;
-  hora_fin: string | Date;
-}
-
-interface EvaluacionSesion {
-  id_evaluacion: number;
-  tipo_evaluacion: string;
+  fecha_fin_estimada: string | Date;
 }
 
 interface ResultadoEvaluacion {
@@ -42,104 +33,59 @@ interface ResultadoEvaluacion {
 interface AsistenciaSesion {
   id_inscripcion: number;
   estado_asistencia:
-    'PRESENTE' | 'AUSENTE' | 'JUSTIFICADO' | 'SUSPENDIDO_POR_MORA';
+    'PRESENTE' | 'AUSENTE' | 'JUSTIFICADA' | 'SUSPENDIDO_POR_MORA';
 }
 
-// ============================================================
-// SERVICE
-// ============================================================
+const SELECT_SESION = `
+  SELECT s.id_sesion, s.id_grupo, s.fecha_programada,
+    ${HORA('s.hora_inicio')}, ${HORA('s.hora_finalizacion')},
+    s.tipo_sesion, s.estado, s.observacion,
+    g.nombre AS grupo, p.id_curso, c.nombre AS curso,
+    ${DIA_SEMANA('s.fecha_programada')} AS dia_semana,
+    (SELECT COUNT(*) FROM PROGRAMACION_CONTENIDO pc WHERE pc.id_sesion = s.id_sesion) AS total_contenidos
+  FROM SESION_CLASE s
+  JOIN GRUPO g ON g.id_grupo = s.id_grupo
+  JOIN PLAN_ESTUDIO p ON p.id_plan = g.id_plan
+  JOIN CURSO c ON c.id_curso = p.id_curso`;
+
+const SELECT_CONTENIDO = `
+  SELECT pc.*, t.nombre AS tema, t.orden, t.modalidad, t.horas_estimadas,
+    u.id_unidad, u.nombre AS unidad, u.orden AS orden_unidad
+  FROM PROGRAMACION_CONTENIDO pc
+  JOIN TEMA_ESTUDIO t ON t.id_tema = pc.id_tema
+  JOIN UNIDAD_ESTUDIO u ON u.id_unidad = t.id_unidad`;
 
 @Injectable()
 export class SesionClaseService {
   constructor(private readonly databaseService: DatabaseService) {}
 
-  // ============================================================
-  // OBTENER TODAS
-  // ============================================================
-
   async getSesiones() {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().query(`
-      SELECT
-        s.*,
-        g.nombre_grupo,
-        h.dia_semana
-      FROM sesion_clase s
-      INNER JOIN grupo g
-        ON s.id_grupo = g.id_grupo
-      LEFT JOIN horario_clase h
-        ON s.id_horario = h.id_horario
-      ORDER BY
-        s.fecha_programada,
-        s.hora_inicio;
+    const result = await this.databaseService.getPool().request().query(`
+      ${SELECT_SESION} ORDER BY s.fecha_programada, s.hora_inicio
     `);
-
     return result.recordset;
   }
 
-  // ============================================================
-  // OBTENER UNA
-  // ============================================================
-
-  async getSesion(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id', id).query(`
-        SELECT
-          s.*,
-          g.nombre_grupo,
-          h.dia_semana
-        FROM sesion_clase s
-        INNER JOIN grupo g
-          ON s.id_grupo = g.id_grupo
-        LEFT JOIN horario_clase h
-          ON s.id_horario = h.id_horario
-        WHERE s.id_sesion = @id;
-      `);
-
-    if (result.recordset.length === 0) {
+  async getSesion(
+    id: number,
+    request = this.databaseService.getPool().request(),
+  ) {
+    const result = await request.input('id', sql.Int, id).query(`
+      ${SELECT_SESION} WHERE s.id_sesion = @id
+    `);
+    if (!result.recordset.length)
       throw new NotFoundException(`La sesión con id ${id} no fue encontrada.`);
-    }
-
     return result.recordset[0];
   }
 
   async getSesionesPorGrupo(idGrupo: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id_grupo', idGrupo).query(`
-      SELECT
-        s.id_sesion,
-        s.id_grupo,
-        s.id_horario,
-        s.fecha_programada,
-        s.hora_inicio,
-        s.hora_fin,
-        s.estado_sesion,
-        s.tema,
-        s.observacion,
-
-        g.nombre_grupo,
-
-        c.id_curso,
-        c.nombre_curso
-
-      FROM sesion_clase s
-
-      INNER JOIN grupo g
-        ON s.id_grupo = g.id_grupo
-
-      INNER JOIN curso c
-        ON g.id_curso = c.id_curso
-
-      WHERE s.id_grupo = @id_grupo
-
-      ORDER BY
-        s.fecha_programada,
-        s.hora_inicio;
-    `);
-
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id_grupo', sql.Int, idGrupo).query(`
+        ${SELECT_SESION} WHERE s.id_grupo = @id_grupo
+        ORDER BY s.fecha_programada, s.hora_inicio
+      `);
     return result.recordset;
   }
 
@@ -149,210 +95,83 @@ export class SesionClaseService {
 
   async createSesion(sesion: CreateSesionClaseDto) {
     return this.databaseService.transaction(async (tx) => {
-      // ----------------------------------------------------------
-      // Verificar grupo
-      // ----------------------------------------------------------
-
-      const grupo = await tx.request().input('id_grupo', sesion.id_grupo)
-        .query<GrupoSesion>(`
-        SELECT
-          id_grupo,
-          estado,
-          fecha_inicio,
-          fecha_fin
-        FROM grupo WITH (UPDLOCK, HOLDLOCK)
-        WHERE id_grupo = @id_grupo;
-      `);
-
-      if (grupo.recordset.length === 0) {
-        throw new NotFoundException(
-          `El grupo con id ${sesion.id_grupo} no fue encontrado.`,
-        );
-      }
-
-      const grupoActual = grupo.recordset[0];
-
-      if (grupoActual.estado !== 'ACTIVO') {
-        throw new BadRequestException(
-          'No se puede crear una sesión para un grupo que no está activo.',
-        );
-      }
-
-      // ----------------------------------------------------------
-      // Verificar fecha dentro del período del grupo
-      // ----------------------------------------------------------
-
-      const fechaSesion = this.crearFechaUTC(sesion.fecha_programada);
-
-      const fechaInicio = this.crearFechaUTC(
-        this.formatearFechaDesdeValor(grupoActual.fecha_inicio),
+      const grupo = await this.bloquearGrupo(tx, sesion.id_grupo);
+      this.validarPeriodo(grupo, sesion.fecha_programada);
+      this.validarHoras(sesion.hora_inicio, sesion.hora_finalizacion);
+      await this.validarSolapamiento(
+        tx,
+        sesion.id_grupo,
+        sesion.fecha_programada,
+        sesion.hora_inicio,
+        sesion.hora_finalizacion,
       );
-
-      const fechaFin = this.crearFechaUTC(
-        this.formatearFechaDesdeValor(grupoActual.fecha_fin),
-      );
-
-      if (fechaSesion < fechaInicio) {
-        throw new BadRequestException(
-          'La fecha de la sesión no puede ser anterior a la fecha de inicio del grupo.',
-        );
-      }
-
-      if (fechaSesion > fechaFin) {
-        throw new BadRequestException(
-          'La fecha de la sesión no puede ser posterior a la fecha de finalización del grupo.',
-        );
-      }
-
-      // ----------------------------------------------------------
-      // Verificar horario
-      // ----------------------------------------------------------
-
-      if (sesion.id_horario != null) {
-        const horario = await tx
-          .request()
-          .input('id_horario', sesion.id_horario)
-          .input('id_grupo', sesion.id_grupo).query(`
-          SELECT
-            id_horario,
-            id_grupo,
-            dia_semana,
-            hora_inicio,
-            hora_fin
-          FROM horario_clase
-          WHERE id_horario = @id_horario
-            AND id_grupo = @id_grupo;
-        `);
-
-        if (horario.recordset.length === 0) {
-          throw new BadRequestException(
-            'El horario indicado no pertenece al grupo.',
-          );
-        }
-      }
-
-      if (
-        sesion.hora_inicio.padEnd(8, ':00') >= sesion.hora_fin.padEnd(8, ':00')
-      ) {
-        throw new BadRequestException(
-          'La hora de inicio debe ser menor que la hora de fin.',
-        );
-      }
-
-      // ----------------------------------------------------------
-      // Verificar solapamiento
-      // ----------------------------------------------------------
-
-      const conflicto = await tx
-        .request()
-        .input('id_grupo', sesion.id_grupo)
-        .input('fecha_programada', sesion.fecha_programada)
-        .input('hora_inicio', sesion.hora_inicio)
-        .input('hora_fin', sesion.hora_fin).query(`
-        SELECT id_sesion
-        FROM sesion_clase
-        WHERE id_grupo = @id_grupo
-          AND fecha_programada = @fecha_programada
-          AND hora_inicio < CAST(@hora_fin AS TIME)
-          AND hora_fin > CAST(@hora_inicio AS TIME)
-          AND estado_sesion <> 'CANCELADA';
-      `);
-
-      if (conflicto.recordset.length > 0) {
-        throw new BadRequestException(
-          'Ya existe una sesión que se solapa con este horario.',
-        );
-      }
-
-      // ----------------------------------------------------------
-      // Crear sesión
-      // ----------------------------------------------------------
 
       const result = await tx
         .request()
-        .input('id_grupo', sesion.id_grupo)
-        .input('id_horario', sesion.id_horario ?? null)
-        .input('fecha_programada', sesion.fecha_programada)
-        .input('hora_inicio', sesion.hora_inicio)
-        .input('hora_fin', sesion.hora_fin)
-        .input('tema', sesion.tema ?? null)
-        .input('observacion', sesion.observacion ?? null).query(`
-        INSERT INTO sesion_clase (
-          id_grupo,
-          id_horario,
-          fecha_programada,
-          hora_inicio,
-          hora_fin,
-          tema,
-          observacion
-        )
-        OUTPUT INSERTED.*
-        VALUES (
-          @id_grupo,
-          @id_horario,
-          @fecha_programada,
-          CAST(@hora_inicio AS TIME),
-          CAST(@hora_fin AS TIME),
-          @tema,
-          @observacion
-        );
-      `);
-
-      return result.recordset[0];
+        .input('id_grupo', sql.Int, sesion.id_grupo)
+        .input('fecha', sql.VarChar(10), sesion.fecha_programada)
+        .input('inicio', sql.VarChar(8), sesion.hora_inicio)
+        .input('fin', sql.VarChar(8), sesion.hora_finalizacion)
+        .input('tipo', sql.VarChar(10), sesion.tipo_sesion)
+        .input('observacion', sql.NVarChar(500), sesion.observacion ?? null)
+        .query(`
+          INSERT INTO SESION_CLASE (id_grupo, fecha_programada, hora_inicio, hora_finalizacion, tipo_sesion, observacion)
+          OUTPUT INSERTED.id_sesion
+          VALUES (@id_grupo, CONVERT(DATE, @fecha, 23), CAST(@inicio AS TIME(0)), CAST(@fin AS TIME(0)), @tipo, @observacion);
+        `);
+      return this.getSesion(result.recordset[0].id_sesion, tx.request());
     });
   }
 
-  async generarSesiones(idGrupo: number) {
+  /**
+   * Genera las sesiones del grupo a partir de HORARIO_CLASE, desde fecha_inicio
+   * hasta antes de la fecha estimada de cierre. No duplica sesiones que ya
+   * ocupan ese horario (en cualquier estado).
+   */
+  async generarSesiones(idGrupo: number, datos: GenerarSesionesDto = {}) {
     return this.databaseService.transaction(async (tx) => {
-      const grupo = (
-        await tx.request().input('grupo', idGrupo).query<GrupoSesion>(`
-        SELECT id_grupo, estado, fecha_inicio, fecha_fin
-        FROM grupo WITH (UPDLOCK, HOLDLOCK) WHERE id_grupo = @grupo
-      `)
-      ).recordset[0];
-      if (!grupo) throw new NotFoundException('El grupo no existe.');
-      if (grupo.estado !== 'ACTIVO')
-        throw new BadRequestException('El grupo debe estar activo.');
-      const horarios = (
-        await tx.request().input('grupo', idGrupo).query<HorarioGrupo>(`
-        SELECT id_horario, dia_semana, hora_inicio, hora_fin FROM horario_clase WHERE id_grupo = @grupo
-      `)
-      ).recordset;
-      if (!horarios.length)
-        throw new BadRequestException('Agrega un horario semanal al grupo.');
-      const fechaInicio = this.formatearFechaDesdeValor(grupo.fecha_inicio);
-      const fechaFin = this.formatearFechaDesdeValor(grupo.fecha_fin);
-      const result = await tx.request().input('grupo', idGrupo).query(`
-        DECLARE @inicio date, @fin date;
-        SELECT @inicio = fecha_inicio, @fin = fecha_fin FROM grupo WHERE id_grupo = @grupo;
-        ;WITH fechas AS (
-          SELECT @inicio AS fecha
-          UNION ALL SELECT DATEADD(day, 1, fecha) FROM fechas WHERE fecha < @fin
-        )
-        INSERT INTO sesion_clase (id_grupo, id_horario, fecha_programada, hora_inicio, hora_fin)
-        OUTPUT INSERTED.*
-        SELECT h.id_grupo, h.id_horario, f.fecha, h.hora_inicio, h.hora_fin
-        FROM fechas f JOIN horario_clase h ON h.id_grupo = @grupo
-          AND h.dia_semana = CHOOSE((DATEDIFF(day, '19000101', f.fecha) % 7 + 7) % 7 + 1,
-            'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO')
-        WHERE NOT EXISTS (
-          SELECT 1 FROM sesion_clase s WHERE s.id_grupo = @grupo AND s.fecha_programada = f.fecha
-            AND (s.id_horario = h.id_horario OR (s.estado_sesion <> 'CANCELADA'
-              AND s.hora_inicio < h.hora_fin AND s.hora_fin > h.hora_inicio))
-        )
-        OPTION (MAXRECURSION 0);
+      const grupo = await this.bloquearGrupo(tx, idGrupo);
+      const horarios = await tx.request().input('grupo', sql.Int, idGrupo)
+        .query(`
+        SELECT TOP (1) id_horario FROM HORARIO_CLASE WHERE id_grupo = @grupo
       `);
+      if (!horarios.recordset.length)
+        throw new BadRequestException('Agrega un horario semanal al grupo.');
+
+      const result = await tx
+        .request()
+        .input('grupo', sql.Int, idGrupo)
+        .input('tipo', sql.VarChar(10), datos.tipo_sesion ?? 'TEORICA').query(`
+          DECLARE @inicio DATE, @fin DATE;
+          SELECT @inicio = g.fecha_inicio, @fin = ${FECHA_FIN_ESTIMADA('g')}
+          FROM GRUPO g WHERE g.id_grupo = @grupo;
+          ;WITH fechas AS (
+            SELECT @inicio AS fecha
+            UNION ALL SELECT DATEADD(DAY, 1, fecha) FROM fechas WHERE DATEADD(DAY, 1, fecha) < @fin
+          )
+          INSERT INTO SESION_CLASE (id_grupo, fecha_programada, hora_inicio, hora_finalizacion, tipo_sesion)
+          OUTPUT INSERTED.id_sesion
+          SELECT h.id_grupo, f.fecha, h.hora_inicio, h.hora_finalizacion, @tipo
+          FROM fechas f
+          JOIN HORARIO_CLASE h ON h.id_grupo = @grupo AND h.dia_semana = ${DIA_SEMANA('f.fecha')}
+          WHERE NOT EXISTS (
+            SELECT 1 FROM SESION_CLASE s
+            WHERE s.id_grupo = @grupo AND s.fecha_programada = f.fecha
+              AND s.hora_inicio < h.hora_finalizacion AND s.hora_finalizacion > h.hora_inicio
+          )
+          OPTION (MAXRECURSION 0);
+        `);
       const total = (
-        await tx.request().input('grupo', idGrupo).query(`
-        SELECT COUNT(*) AS total FROM sesion_clase WHERE id_grupo = @grupo AND id_horario IS NOT NULL
-      `)
+        await tx.request().input('grupo', sql.Int, idGrupo).query(`
+          SELECT COUNT(*) AS total FROM SESION_CLASE WHERE id_grupo = @grupo
+        `)
       ).recordset[0].total;
       return {
         mensaje: 'Calendario de sesiones actualizado.',
         sesiones_existentes: total - result.recordset.length,
         sesiones_creadas: result.recordset.length,
-        fecha_inicio: fechaInicio,
-        fecha_fin: fechaFin,
+        fecha_inicio: fechaISO(grupo.fecha_inicio),
+        fecha_fin_estimada: fechaISO(grupo.fecha_fin_estimada),
         sesiones: result.recordset,
       };
     });
@@ -361,628 +180,403 @@ export class SesionClaseService {
   async updateSesion(id: number, sesion: UpdateSesionClaseDto) {
     const { id_grupo } = await this.getSesion(id);
     return this.databaseService.transaction(async (tx) => {
-      await tx.request().input('grupo', id_grupo).query(`
-      SELECT id_grupo FROM grupo WITH (UPDLOCK, HOLDLOCK) WHERE id_grupo = @grupo
-    `);
-
-      // ----------------------------------------------------------
-      // Obtener sesión
-      // ----------------------------------------------------------
-
-      const existente = await tx.request().input('id', id).query(`
-        SELECT
-          *
-        FROM sesion_clase WITH (UPDLOCK, HOLDLOCK)
-        WHERE id_sesion = @id;
-      `);
-
-      if (existente.recordset.length === 0) {
+      const grupo = await this.bloquearGrupo(tx, id_grupo, false);
+      const actual = (
+        await tx.request().input('id', sql.Int, id).query(`
+          SELECT id_sesion, id_grupo, fecha_programada, ${HORA('hora_inicio')},
+            ${HORA('hora_finalizacion')}, tipo_sesion, estado, observacion
+          FROM SESION_CLASE WITH (UPDLOCK, HOLDLOCK) WHERE id_sesion = @id
+        `)
+      ).recordset[0];
+      if (!actual)
         throw new NotFoundException(
           `La sesión con id ${id} no fue encontrada.`,
         );
-      }
-
-      const actual = existente.recordset[0];
-
-      // ----------------------------------------------------------
-      // Solo sesiones programadas
-      // ----------------------------------------------------------
-
-      if (actual.estado_sesion !== 'PROGRAMADA') {
+      if (actual.estado !== 'PROGRAMADA')
         throw new BadRequestException(
           'Solo se pueden modificar sesiones que están programadas.',
         );
-      }
 
-      // ----------------------------------------------------------
-      // Obtener grupo
-      // ----------------------------------------------------------
-
-      const grupo = await tx.request().input('id_grupo', actual.id_grupo)
-        .query<GrupoSesion>(`
-        SELECT
-          id_grupo,
-          estado,
-          fecha_inicio,
-          fecha_fin
-        FROM grupo
-        WHERE id_grupo = @id_grupo;
-      `);
-
-      if (grupo.recordset.length === 0) {
-        throw new NotFoundException(
-          `El grupo con id ${actual.id_grupo} no fue encontrado.`,
-        );
-      }
-
-      const grupoActual = grupo.recordset[0];
-
-      // ----------------------------------------------------------
-      // Mantener valores actuales
-      // ----------------------------------------------------------
-
-      const fechaProgramada =
-        sesion.fecha_programada ??
-        this.formatearFechaDesdeValor(actual.fecha_programada);
-
-      if (
-        fechaProgramada !==
-        this.formatearFechaDesdeValor(actual.fecha_programada)
-      ) {
-        const historial = await tx.request().input('id', id).query(`
-        SELECT id_asistencia FROM asistencia WHERE id_sesion = @id
-      `);
+      const fechaActual = fechaISO(actual.fecha_programada)!;
+      const fecha = sesion.fecha_programada ?? fechaActual;
+      if (fecha !== fechaActual) {
+        const historial = await tx.request().input('id', sql.Int, id).query(`
+          SELECT TOP (1) id_asistencia FROM ASISTENCIA WHERE id_sesion = @id
+        `);
         if (historial.recordset.length)
           throw new BadRequestException(
             'La fecha no puede cambiar porque ya se registró la asistencia.',
           );
       }
-
-      const horaInicio =
-        sesion.hora_inicio ?? this.formatearHora(actual.hora_inicio);
-
-      const horaFin = sesion.hora_fin ?? this.formatearHora(actual.hora_fin);
-
-      const tema = sesion.tema !== undefined ? sesion.tema : actual.tema;
-
-      const observacion =
-        sesion.observacion !== undefined
-          ? sesion.observacion
-          : actual.observacion;
-
-      // ----------------------------------------------------------
-      // Verificar fecha dentro del grupo
-      // ----------------------------------------------------------
-
-      const fechaSesion = this.crearFechaUTC(fechaProgramada);
-
-      const fechaInicio = this.crearFechaUTC(
-        this.formatearFechaDesdeValor(grupoActual.fecha_inicio),
+      const inicio = sesion.hora_inicio ?? actual.hora_inicio;
+      const fin = sesion.hora_finalizacion ?? actual.hora_finalizacion;
+      this.validarPeriodo(grupo, fecha);
+      this.validarHoras(inicio, fin);
+      await this.validarSolapamiento(
+        tx,
+        actual.id_grupo,
+        fecha,
+        inicio,
+        fin,
+        id,
       );
-
-      const fechaFin = this.crearFechaUTC(
-        this.formatearFechaDesdeValor(grupoActual.fecha_fin),
-      );
-
-      if (fechaSesion < fechaInicio || fechaSesion > fechaFin) {
-        throw new BadRequestException(
-          'La fecha de la sesión debe estar dentro del período del grupo.',
-        );
-      }
-
-      // ----------------------------------------------------------
-      // Verificar hora
-      // ----------------------------------------------------------
-
-      if (horaInicio.padEnd(8, ':00') >= horaFin.padEnd(8, ':00')) {
-        throw new BadRequestException(
-          'La hora de inicio debe ser menor que la hora de fin.',
-        );
-      }
-
-      // ----------------------------------------------------------
-      // Verificar solapamiento
-      // ----------------------------------------------------------
-
-      const conflicto = await tx
-        .request()
-        .input('id', id)
-        .input('id_grupo', actual.id_grupo)
-        .input('fecha_programada', fechaProgramada)
-        .input('hora_inicio', horaInicio)
-        .input('hora_fin', horaFin).query(`
-        SELECT id_sesion
-        FROM sesion_clase
-        WHERE id_grupo = @id_grupo
-          AND fecha_programada = @fecha_programada
-          AND hora_inicio < CAST(@hora_fin AS TIME)
-          AND hora_fin > CAST(@hora_inicio AS TIME)
-          AND id_sesion <> @id
-          AND estado_sesion <> 'CANCELADA';
-      `);
-
-      if (conflicto.recordset.length > 0) {
-        throw new BadRequestException(
-          'La sesión se solapa con otra sesión del mismo grupo.',
-        );
-      }
-
-      // ----------------------------------------------------------
-      // Actualizar
-      // ----------------------------------------------------------
 
       await tx
         .request()
-        .input('id', id)
-        .input('fecha_programada', fechaProgramada)
-        .input('hora_inicio', horaInicio)
-        .input('hora_fin', horaFin)
-        .input('tema', tema)
-        .input('observacion', observacion).query(`
-        UPDATE sesion_clase
-        SET
-          fecha_programada = @fecha_programada,
-          hora_inicio = CAST(@hora_inicio AS TIME),
-          hora_fin = CAST(@hora_fin AS TIME),
-          tema = @tema,
-          observacion = @observacion
-        WHERE id_sesion = @id;
-      `);
-
-      // ----------------------------------------------------------
-      // Obtener actualizado
-      // ----------------------------------------------------------
-
-      const actualizado = await tx.request().input('id', id).query(`
-        SELECT *
-        FROM sesion_clase
-        WHERE id_sesion = @id;
-      `);
-
-      return actualizado.recordset[0];
+        .input('id', sql.Int, id)
+        .input('fecha', sql.VarChar(10), fecha)
+        .input('inicio', sql.VarChar(8), inicio)
+        .input('fin', sql.VarChar(8), fin)
+        .input(
+          'tipo',
+          sql.VarChar(10),
+          sesion.tipo_sesion ?? actual.tipo_sesion,
+        )
+        .input(
+          'observacion',
+          sql.NVarChar(500),
+          sesion.observacion !== undefined
+            ? sesion.observacion
+            : actual.observacion,
+        ).query(`
+          UPDATE SESION_CLASE
+          SET fecha_programada = CONVERT(DATE, @fecha, 23),
+            hora_inicio = CAST(@inicio AS TIME(0)),
+            hora_finalizacion = CAST(@fin AS TIME(0)),
+            tipo_sesion = @tipo,
+            observacion = @observacion
+          WHERE id_sesion = @id;
+        `);
+      return this.getSesion(id, tx.request());
     });
   }
 
   async cancelarSesion(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id', id).query(`
-        UPDATE sesion_clase
-        SET estado_sesion = 'CANCELADA'
-        OUTPUT INSERTED.*
-        WHERE id_sesion = @id
-          AND estado_sesion = 'PROGRAMADA';
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id).query(`
+        UPDATE SESION_CLASE SET estado = 'CANCELADA'
+        OUTPUT INSERTED.id_sesion
+        WHERE id_sesion = @id AND estado = 'PROGRAMADA';
       `);
-
-    if (result.recordset.length === 0) {
+    if (!result.recordset.length)
       throw new NotFoundException(
         `La sesión con id ${id} no fue encontrada o ya no está programada.`,
       );
-    }
-
-    return result.recordset[0];
+    return this.getSesion(id);
   }
-
-  // ============================================================
-  // MARCAR COMO REALIZADA
-  // ============================================================
 
   async finalizarSesion(id: number) {
     return this.databaseService.transaction(async (tx) => {
-      // ----------------------------------------------------------
-      // Obtener sesión
-      // ----------------------------------------------------------
-
-      const sesion = await tx.request().input('id_sesion', id).query(`
-        SELECT
-          id_sesion,
-          id_grupo,
-          estado_sesion,
-          fecha_programada
-        FROM sesion_clase WITH (UPDLOCK, HOLDLOCK)
-        WHERE id_sesion = @id_sesion;
-      `);
-
-      if (sesion.recordset.length === 0) {
+      const sesion = (
+        await tx.request().input('id', sql.Int, id).query(`
+          SELECT id_sesion, id_grupo, estado, fecha_programada
+          FROM SESION_CLASE WITH (UPDLOCK, HOLDLOCK) WHERE id_sesion = @id
+        `)
+      ).recordset[0];
+      if (!sesion)
         throw new NotFoundException(
           `La sesión con id ${id} no fue encontrada.`,
         );
-      }
-
-      const sesionActual = sesion.recordset[0];
-
-      // ----------------------------------------------------------
-      // Solo programadas
-      // ----------------------------------------------------------
-
-      if (sesionActual.estado_sesion !== 'PROGRAMADA') {
+      if (sesion.estado !== 'PROGRAMADA')
         throw new BadRequestException(
           'Solo se puede finalizar una sesión que está programada.',
         );
-      }
 
-      // ----------------------------------------------------------
-      // Validar asistencias
-      // ----------------------------------------------------------
-
-      await this.validarAsistenciasCompletas(
-        id,
-        sesionActual.id_grupo,
-        sesionActual.fecha_programada,
+      const inscripciones = await this.inscripcionesDeSesion(
         tx,
+        id,
+        sesion.id_grupo,
+        sesion.fecha_programada,
       );
-
-      // ----------------------------------------------------------
-      // Validar evaluaciones
-      // ----------------------------------------------------------
-
+      const asistencias = (
+        await tx.request().input('id', sql.Int, id).query<AsistenciaSesion>(`
+          SELECT id_inscripcion, estado_asistencia FROM ASISTENCIA WHERE id_sesion = @id
+        `)
+      ).recordset;
+      this.validarAsistenciasCompletas(inscripciones, asistencias);
       await this.validarEvaluacionesCompletas(
-        id,
-        sesionActual.id_grupo,
-        sesionActual.fecha_programada,
         tx,
+        id,
+        inscripciones,
+        asistencias,
       );
 
-      // ----------------------------------------------------------
-      // Marcar como realizada
-      // ----------------------------------------------------------
-
-      const result = await tx.request().input('id_sesion', id).query(`
-        UPDATE sesion_clase
-        SET estado_sesion = 'REALIZADA'
-        OUTPUT INSERTED.*
-        WHERE id_sesion = @id_sesion
-          AND estado_sesion = 'PROGRAMADA';
+      await tx.request().input('id', sql.Int, id).query(`
+        UPDATE SESION_CLASE SET estado = 'REALIZADA'
+        WHERE id_sesion = @id AND estado = 'PROGRAMADA';
       `);
-
-      if (result.recordset.length === 0) {
-        throw new BadRequestException('La sesión no pudo ser finalizada.');
-      }
-
       return {
         mensaje: 'Sesión finalizada correctamente.',
-        sesion: result.recordset[0],
+        sesion: await this.getSesion(id, tx.request()),
       };
     });
   }
 
   // ============================================================
-  // VALIDAR ASISTENCIAS COMPLETAS
+  // PROGRAMACIÓN DE CONTENIDO (temas del plan por sesión)
   // ============================================================
 
-  private async validarAsistenciasCompletas(
+  async getContenidos(idSesion: number) {
+    await this.getSesion(idSesion);
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, idSesion).query(`
+        ${SELECT_CONTENIDO} WHERE pc.id_sesion = @id
+        ORDER BY u.orden, t.orden
+      `);
+    return result.recordset;
+  }
+
+  async createContenido(idSesion: number, datos: CreateContenidoDto) {
+    const sesion = await this.getSesion(idSesion);
+    if (sesion.estado === 'CANCELADA')
+      throw new BadRequestException('La sesión está cancelada.');
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('sesion', sql.Int, idSesion)
+      .input('tema', sql.Int, datos.id_tema)
+      .input(
+        'estado',
+        sql.VarChar(10),
+        datos.estado_cumplimiento ?? 'PENDIENTE',
+      )
+      .input('observacion', sql.NVarChar(500), datos.observacion ?? null)
+      .query(
+        `
+        INSERT INTO PROGRAMACION_CONTENIDO (id_sesion, id_tema, estado_cumplimiento, observacion)
+        VALUES (@sesion, @tema, @estado, @observacion);
+        SELECT CAST(SCOPE_IDENTITY() AS INT) AS id_programacion;
+      `,
+      )
+      .catch((error) => this.errorContenido(error));
+    return this.getContenido(result.recordset[0].id_programacion);
+  }
+
+  async updateContenido(id: number, datos: UpdateContenidoDto) {
+    const actual = await this.getContenido(id);
+    await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id)
+      .input(
+        'estado',
+        sql.VarChar(10),
+        datos.estado_cumplimiento ?? actual.estado_cumplimiento,
+      )
+      .input(
+        'observacion',
+        sql.NVarChar(500),
+        datos.observacion !== undefined
+          ? datos.observacion
+          : actual.observacion,
+      ).query(`
+        UPDATE PROGRAMACION_CONTENIDO
+        SET estado_cumplimiento = @estado, observacion = @observacion
+        WHERE id_programacion = @id;
+      `);
+    return this.getContenido(id);
+  }
+
+  async deleteContenido(id: number) {
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id)
+      .query('DELETE PROGRAMACION_CONTENIDO WHERE id_programacion = @id');
+    if (!result.rowsAffected[0])
+      throw new NotFoundException('El contenido programado no existe.');
+    return {
+      mensaje: 'Contenido eliminado de la sesión.',
+      id_programacion: id,
+    };
+  }
+
+  private async getContenido(id: number) {
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id)
+      .query(`${SELECT_CONTENIDO} WHERE pc.id_programacion = @id`);
+    if (!result.recordset.length)
+      throw new NotFoundException('El contenido programado no existe.');
+    return result.recordset[0];
+  }
+
+  private errorContenido(error: { number?: number; message?: string }): never {
+    // TR_PROGRAMACION_CONTENIDO_ValidarPlan
+    if (error.number === 50001) throw new BadRequestException(error.message);
+    if ([2601, 2627].includes(error.number ?? 0))
+      throw new BadRequestException(
+        'El tema ya está programado en esta sesión.',
+      );
+    if (error.number === 547)
+      throw new BadRequestException('El tema seleccionado no existe.');
+    throw error;
+  }
+
+  // ============================================================
+  // VALIDACIONES
+  // ============================================================
+
+  private async bloquearGrupo(tx: Transaction, id: number, enCurso = true) {
+    const grupo = (
+      await tx.request().input('id', sql.Int, id).query<GrupoSesion>(`
+        SELECT g.id_grupo, g.estado, g.fecha_inicio, ${FECHA_FIN_ESTIMADA('g')} AS fecha_fin_estimada
+        FROM GRUPO g WITH (UPDLOCK, HOLDLOCK) WHERE g.id_grupo = @id
+      `)
+    ).recordset[0];
+    if (!grupo)
+      throw new NotFoundException(`El grupo con id ${id} no fue encontrado.`);
+    if (enCurso && grupo.estado !== 'EN_CURSO')
+      throw new BadRequestException('El grupo debe estar en curso.');
+    return grupo;
+  }
+
+  private validarPeriodo(grupo: GrupoSesion, fecha: string) {
+    if (fecha < fechaISO(grupo.fecha_inicio)!)
+      throw new BadRequestException(
+        'La fecha de la sesión no puede ser anterior a la fecha de inicio del grupo.',
+      );
+    if (fecha >= fechaISO(grupo.fecha_fin_estimada)!)
+      throw new BadRequestException(
+        'La fecha de la sesión debe ser anterior a la fecha estimada de cierre del grupo.',
+      );
+  }
+
+  private validarHoras(inicio: string, fin: string) {
+    if (inicio.padEnd(8, ':00') >= fin.padEnd(8, ':00'))
+      throw new BadRequestException(
+        'La hora de inicio debe ser menor que la hora de finalización.',
+      );
+  }
+
+  private async validarSolapamiento(
+    tx: Transaction,
+    grupo: number,
+    fecha: string,
+    inicio: string,
+    fin: string,
+    excluir?: number,
+  ) {
+    const conflicto = await tx
+      .request()
+      .input('grupo', sql.Int, grupo)
+      .input('fecha', sql.VarChar(10), fecha)
+      .input('inicio', sql.VarChar(8), inicio)
+      .input('fin', sql.VarChar(8), fin)
+      .input('excluir', sql.Int, excluir ?? null).query(`
+        SELECT TOP (1) id_sesion FROM SESION_CLASE
+        WHERE id_grupo = @grupo AND fecha_programada = CONVERT(DATE, @fecha, 23)
+          AND hora_inicio < CAST(@fin AS TIME(0)) AND hora_finalizacion > CAST(@inicio AS TIME(0))
+          AND estado <> 'CANCELADA' AND (@excluir IS NULL OR id_sesion <> @excluir)
+      `);
+    if (conflicto.recordset.length)
+      throw new BadRequestException(
+        'Ya existe una sesión que se solapa con este horario.',
+      );
+  }
+
+  private async inscripcionesDeSesion(
+    tx: Transaction,
     idSesion: number,
     idGrupo: number,
     fecha: Date,
-    tx: Transaction,
-  ): Promise<void> {
-    // ----------------------------------------------------------
-    // Inscripciones activas
-    // ----------------------------------------------------------
-
-    const inscripcionesResult = await tx
+  ) {
+    const result = await tx
       .request()
-      .input('id_grupo', idGrupo)
-      .input('fecha', fecha)
-      .input('sesion', idSesion).query<{ id_inscripcion: number }>(`
-          SELECT
-            i.id_inscripcion
-          FROM inscripcion i
-          WHERE i.id_grupo = @id_grupo
-            AND ((i.estado_inscripcion = 'ACTIVA' AND i.fecha_inscripcion <= @fecha)
-              OR EXISTS (SELECT 1 FROM asistencia a WHERE a.id_sesion = @sesion AND a.id_inscripcion = i.id_inscripcion));
-        `);
+      .input('grupo', sql.Int, idGrupo)
+      .input('fecha', sql.Date, fecha)
+      .input('sesion', sql.Int, idSesion).query<{ id_inscripcion: number }>(`
+        SELECT i.id_inscripcion FROM INSCRIPCION i
+        WHERE i.id_grupo = @grupo
+          AND ((i.estado = 'ACTIVA' AND i.fecha_inscripcion <= @fecha)
+            OR EXISTS (SELECT 1 FROM ASISTENCIA a WHERE a.id_sesion = @sesion AND a.id_inscripcion = i.id_inscripcion))
+      `);
+    return result.recordset.map((i) => i.id_inscripcion);
+  }
 
-    const idsInscripciones = inscripcionesResult.recordset.map(
-      (inscripcion) => inscripcion.id_inscripcion,
-    );
-
-    const idsInscripcionesSet = new Set(idsInscripciones);
-
-    // ----------------------------------------------------------
-    // Asistencias
-    // ----------------------------------------------------------
-
-    const asistenciasResult = await tx.request().input('id_sesion', idSesion)
-      .query<AsistenciaSesion>(`
-          SELECT
-            id_inscripcion,
-            estado_asistencia
-          FROM asistencia
-          WHERE id_sesion = @id_sesion;
-        `);
-
-    const asistencias = asistenciasResult.recordset;
-
-    // ----------------------------------------------------------
-    // Verificar asistencias inválidas
-    // ----------------------------------------------------------
-
+  private validarAsistenciasCompletas(
+    inscripciones: number[],
+    asistencias: AsistenciaSesion[],
+  ) {
+    const validas = new Set(inscripciones);
     for (const asistencia of asistencias) {
-      if (!idsInscripcionesSet.has(asistencia.id_inscripcion)) {
+      if (!validas.has(asistencia.id_inscripcion))
         throw new BadRequestException(
           `La asistencia pertenece a la inscripción ${asistencia.id_inscripcion}, que no está activa en el grupo.`,
         );
-      }
     }
-
-    // ----------------------------------------------------------
-    // Detectar faltantes
-    // ----------------------------------------------------------
-
-    const idsConAsistencia = new Set(
-      asistencias.map((asistencia) => asistencia.id_inscripcion),
-    );
-
-    const faltantes = idsInscripciones.filter(
-      (idInscripcion) => !idsConAsistencia.has(idInscripcion),
-    );
-
-    if (faltantes.length > 0) {
+    const registradas = new Set(asistencias.map((a) => a.id_inscripcion));
+    const faltantes = inscripciones.filter((id) => !registradas.has(id));
+    if (faltantes.length)
       throw new BadRequestException(
         `No se puede finalizar la sesión. Faltan asistencias para las inscripciones: ${faltantes.join(', ')}.`,
       );
-    }
-
-    // ----------------------------------------------------------
-    // Estados válidos
-    // ----------------------------------------------------------
-
-    const estadosValidos = [
-      'PRESENTE',
-      'AUSENTE',
-      'JUSTIFICADO',
-      'SUSPENDIDO_POR_MORA',
-    ];
-
-    for (const asistencia of asistencias) {
-      if (!estadosValidos.includes(asistencia.estado_asistencia)) {
-        throw new BadRequestException(
-          `La asistencia de la inscripción ${asistencia.id_inscripcion} tiene un estado inválido.`,
-        );
-      }
-    }
   }
-
-  // ============================================================
-  // VALIDAR EVALUACIONES COMPLETAS
-  // ============================================================
 
   private async validarEvaluacionesCompletas(
-    idSesion: number,
-    idGrupo: number,
-    fecha: Date,
     tx: Transaction,
-  ): Promise<void> {
-    // ----------------------------------------------------------
-    // Evaluaciones de la sesión
-    // ----------------------------------------------------------
-
-    const evaluacionesResult = await tx.request().input('id_sesion', idSesion)
-      .query<EvaluacionSesion>(`
-          SELECT
-            id_evaluacion,
-            tipo_evaluacion
-          FROM evaluacion
-          WHERE id_sesion = @id_sesion;
-        `);
-
-    const evaluaciones = evaluacionesResult.recordset;
-
-    if (evaluaciones.length === 0) {
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // Inscripciones activas
-    // ----------------------------------------------------------
-
-    const inscripcionesResult = await tx
-      .request()
-      .input('id_grupo', idGrupo)
-      .input('fecha', fecha)
-      .input('sesion', idSesion).query<{ id_inscripcion: number }>(`
-          SELECT
-            i.id_inscripcion
-          FROM inscripcion i
-          WHERE i.id_grupo = @id_grupo
-            AND ((i.estado_inscripcion = 'ACTIVA' AND i.fecha_inscripcion <= @fecha)
-              OR EXISTS (SELECT 1 FROM asistencia a WHERE a.id_sesion = @sesion AND a.id_inscripcion = i.id_inscripcion));
-        `);
-
-    const idsInscripciones = inscripcionesResult.recordset.map(
-      (inscripcion) => inscripcion.id_inscripcion,
+    idSesion: number,
+    inscripciones: number[],
+    asistencias: AsistenciaSesion[],
+  ) {
+    const evaluaciones = (
+      await tx.request().input('id', sql.Int, idSesion).query<{
+        id_evaluacion: number;
+      }>(`
+        SELECT id_evaluacion FROM EVALUACION WHERE id_sesion = @id
+      `)
+    ).recordset;
+    const asistencia = new Map(
+      asistencias.map((a) => [a.id_inscripcion, a.estado_asistencia]),
     );
+    const validas = new Set(inscripciones);
 
-    const idsInscripcionesSet = new Set(idsInscripciones);
-
-    // ----------------------------------------------------------
-    // Asistencias
-    // ----------------------------------------------------------
-
-    const asistenciasResult = await tx.request().input('id_sesion', idSesion)
-      .query<AsistenciaSesion>(`
-          SELECT
-            id_inscripcion,
-            estado_asistencia
-          FROM asistencia
-          WHERE id_sesion = @id_sesion;
-        `);
-
-    const asistenciasPorInscripcion = new Map<
-      number,
-      AsistenciaSesion['estado_asistencia']
-    >(
-      asistenciasResult.recordset.map((asistencia) => [
-        asistencia.id_inscripcion,
-        asistencia.estado_asistencia,
-      ]),
-    );
-
-    // ----------------------------------------------------------
-    // Validar cada evaluación
-    // ----------------------------------------------------------
-
-    for (const evaluacion of evaluaciones) {
-      const resultadosResult = await tx
-        .request()
-        .input('id_evaluacion', evaluacion.id_evaluacion)
-        .query<ResultadoEvaluacion>(`
-            SELECT
-              id_inscripcion,
-              nota,
-              estado_resultado
-            FROM resultado_evaluacion
-            WHERE id_evaluacion = @id_evaluacion;
-          `);
-
-      const resultados = resultadosResult.recordset;
-
-      const resultadosPorInscripcion = new Map<number, ResultadoEvaluacion>(
-        resultados.map((resultado) => [resultado.id_inscripcion, resultado]),
+    for (const { id_evaluacion } of evaluaciones) {
+      const resultados = (
+        await tx.request().input('id', sql.Int, id_evaluacion)
+          .query<ResultadoEvaluacion>(`
+          SELECT id_inscripcion, nota, estado_resultado
+          FROM RESULTADO_EVALUACION WHERE id_evaluacion = @id
+        `)
+      ).recordset;
+      const porInscripcion = new Map<number, ResultadoEvaluacion>(
+        resultados.map((r) => [r.id_inscripcion, r]),
       );
-
-      // --------------------------------------------------------
-      // Resultados inválidos
-      // --------------------------------------------------------
-
       for (const resultado of resultados) {
-        if (!idsInscripcionesSet.has(resultado.id_inscripcion)) {
+        if (!validas.has(resultado.id_inscripcion))
           throw new BadRequestException(
-            `La evaluación ${evaluacion.id_evaluacion} contiene un resultado para la inscripción ${resultado.id_inscripcion}, que no está activa en el grupo.`,
+            `La evaluación ${id_evaluacion} contiene un resultado para la inscripción ${resultado.id_inscripcion}, que no está activa en el grupo.`,
           );
-        }
       }
-
-      // --------------------------------------------------------
-      // Faltantes
-      // --------------------------------------------------------
-
-      const faltantes = idsInscripciones.filter(
-        (idInscripcion) => !resultadosPorInscripcion.has(idInscripcion),
-      );
-
-      if (faltantes.length > 0) {
+      const faltantes = inscripciones.filter((id) => !porInscripcion.has(id));
+      if (faltantes.length)
         throw new BadRequestException(
-          `No se puede finalizar la sesión. La evaluación ${evaluacion.id_evaluacion} no tiene resultado para las inscripciones: ${faltantes.join(', ')}.`,
+          `No se puede finalizar la sesión. La evaluación ${id_evaluacion} no tiene resultado para las inscripciones: ${faltantes.join(', ')}.`,
         );
-      }
-
-      // --------------------------------------------------------
-      // Validar cada resultado
-      // --------------------------------------------------------
-
-      for (const idInscripcion of idsInscripciones) {
-        const resultado = resultadosPorInscripcion.get(idInscripcion);
-
-        if (!resultado) {
-          continue;
-        }
-
-        const estadoAsistencia = asistenciasPorInscripcion.get(idInscripcion);
-
-        if (!estadoAsistencia) {
+      for (const id of inscripciones) {
+        const resultado = porInscripcion.get(id)!;
+        if (asistencia.get(id) === 'PRESENTE') {
+          if (
+            resultado.estado_resultado !== 'CALIFICADO' ||
+            resultado.nota === null
+          )
+            throw new BadRequestException(
+              `La inscripción ${id} estuvo presente y debe tener una nota CALIFICADO en la evaluación ${id_evaluacion}.`,
+            );
+        } else if (
+          resultado.estado_resultado !== 'NO_SE_PRESENTO' ||
+          resultado.nota !== null
+        ) {
           throw new BadRequestException(
-            `No existe asistencia para la inscripción ${idInscripcion}.`,
+            `La inscripción ${id} no estuvo presente y debe tener resultado NO_SE_PRESENTO sin nota en la evaluación ${id_evaluacion}.`,
           );
         }
-
-        // ------------------------------------------------------
-        // NO PRESENTE
-        // ------------------------------------------------------
-
-        if (estadoAsistencia !== 'PRESENTE') {
-          if (
-            resultado.estado_resultado !== 'NO_SE_PRESENTO' ||
-            resultado.nota !== null
-          ) {
-            throw new BadRequestException(
-              `La inscripción ${idInscripcion} no estuvo presente y debe tener resultado NO_SE_PRESENTO con nota NULL en la evaluación ${evaluacion.id_evaluacion}.`,
-            );
-          }
-        }
-
-        // ------------------------------------------------------
-        // PRESENTE
-        // ------------------------------------------------------
-
-        if (estadoAsistencia === 'PRESENTE') {
-          if (resultado.estado_resultado !== 'CALIFICADO') {
-            throw new BadRequestException(
-              `La inscripción ${idInscripcion} estuvo presente y debe tener un resultado CALIFICADO en la evaluación ${evaluacion.id_evaluacion}.`,
-            );
-          }
-
-          if (resultado.nota === null || resultado.nota === undefined) {
-            throw new BadRequestException(
-              `La inscripción ${idInscripcion} estuvo presente pero no tiene nota en la evaluación ${evaluacion.id_evaluacion}.`,
-            );
-          }
-
-          if (resultado.nota < 0 || resultado.nota > 100) {
-            throw new BadRequestException(
-              `La nota de la inscripción ${idInscripcion} debe estar entre 0 y 100.`,
-            );
-          }
-        }
       }
     }
-  }
-
-  // ============================================================
-  // HELPER: DÍA DE LA SEMANA
-  private formatearFecha(fecha: Date): string {
-    const year = fecha.getUTCFullYear();
-
-    const month = String(fecha.getUTCMonth() + 1).padStart(2, '0');
-
-    const day = String(fecha.getUTCDate()).padStart(2, '0');
-
-    return `${year}-${month}-${day}`;
-  }
-
-  // ============================================================
-  // HELPER: CREAR FECHA UTC
-  // ============================================================
-
-  private crearFechaUTC(fecha: string): Date {
-    const [year, month, day] = fecha.split('-').map(Number);
-
-    return new Date(Date.UTC(year, month - 1, day));
-  }
-
-  // ============================================================
-  // HELPER: OBTENER FECHA YYYY-MM-DD
-  // ============================================================
-
-  private formatearFechaDesdeValor(valor: string | Date): string {
-    if (typeof valor === 'string') {
-      return valor.substring(0, 10);
-    }
-
-    return this.formatearFecha(valor);
-  }
-
-  // ============================================================
-  // HELPER: FORMATEAR HORA
-  // ============================================================
-
-  private formatearHora(hora: any): string {
-    // SQL Server TIME puede llegar como Date
-    // dependiendo de mssql/tedious.
-
-    if (hora instanceof Date) {
-      const hours = String(hora.getUTCHours()).padStart(2, '0');
-
-      const minutes = String(hora.getUTCMinutes()).padStart(2, '0');
-
-      return `${hours}:${minutes}`;
-    }
-
-    if (typeof hora === 'string') {
-      return hora.substring(0, 5);
-    }
-
-    return hora;
   }
 }

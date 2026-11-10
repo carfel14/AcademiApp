@@ -40,11 +40,11 @@ export class ProrrogaController {
   // OBTENER POR OBLIGACIÓN
   // ============================================================
 
-  @Get('/obligacion/:idObligacion')
-  getProrrogaPorObligacion(
+  @Get('obligacion/:idObligacion')
+  getProrrogasPorObligacion(
     @Param('idObligacion', ParseIntPipe) idObligacion: number,
   ) {
-    return this.prorrogaService.getProrrogaPorObligacion(idObligacion);
+    return this.prorrogaService.getProrrogasPorObligacion(idObligacion);
   }
 
   // ============================================================

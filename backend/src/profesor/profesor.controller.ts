@@ -1,7 +1,18 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ProfesorService } from './profesor.service';
-import { CreateProfesorDto } from './dto/create-profesor.dto';
+import {
+  CreateEspecialidadDto,
+  CreateProfesorDto,
+} from './dto/create-profesor.dto';
 import { UpdateProfesorDto } from './dto/update-profesor.dto';
 
 @Controller('profesores')
@@ -13,9 +24,19 @@ export class ProfesorController {
     return this.profesorService.getProfesores();
   }
 
-  @Get('/:id')
-  getProfesor(@Param('id') id: string) {
-    return this.profesorService.getProfesor(Number(id));
+  @Get('especialidades')
+  getEspecialidades() {
+    return this.profesorService.getEspecialidades();
+  }
+
+  @Post('especialidades')
+  createEspecialidad(@Body() body: CreateEspecialidadDto) {
+    return this.profesorService.createEspecialidad(body.nombre);
+  }
+
+  @Get(':id')
+  getProfesor(@Param('id', ParseIntPipe) id: number) {
+    return this.profesorService.getProfesor(id);
   }
 
   @Post()
@@ -23,13 +44,16 @@ export class ProfesorController {
     return this.profesorService.createProfesor(profesor);
   }
 
-  @Patch('/:id')
-  updateProfesor(@Param('id') id: string, @Body() profesor: UpdateProfesorDto) {
-    return this.profesorService.updateProfesor(Number(id), profesor);
+  @Patch(':id')
+  updateProfesor(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() profesor: UpdateProfesorDto,
+  ) {
+    return this.profesorService.updateProfesor(id, profesor);
   }
 
-  @Delete('/:id')
-  deleteProfesor(@Param('id') id: string) {
-    return this.profesorService.deleteProfesor(Number(id));
+  @Delete(':id')
+  deleteProfesor(@Param('id', ParseIntPipe) id: number) {
+    return this.profesorService.deleteProfesor(id);
   }
 }

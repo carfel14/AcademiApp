@@ -6,6 +6,7 @@ import {
 
 import * as sql from 'mssql';
 
+import { ESTADO_CUENTA } from 'src/database/consultas';
 import { DatabaseService } from 'src/database/database.service';
 
 import { RegistrarAsistenciasDto } from './dto/registrar-asistencias.dto';
@@ -44,18 +45,19 @@ export class AsistenciaService {
       SELECT
         a.*,
         i.id_estudiante,
+        e.codigo,
         e.nombres,
         e.apellidos,
         s.id_grupo,
         s.fecha_programada,
-        s.hora_inicio,
-        s.hora_fin
-      FROM asistencia a
-      INNER JOIN inscripcion i
+        CONVERT(VARCHAR(5), s.hora_inicio, 108) AS hora_inicio,
+        CONVERT(VARCHAR(5), s.hora_finalizacion, 108) AS hora_finalizacion
+      FROM ASISTENCIA a
+      INNER JOIN INSCRIPCION i
         ON a.id_inscripcion = i.id_inscripcion
-      INNER JOIN estudiante e
+      INNER JOIN ESTUDIANTE e
         ON i.id_estudiante = e.id_estudiante
-      INNER JOIN sesion_clase s
+      INNER JOIN SESION_CLASE s
         ON a.id_sesion = s.id_sesion
       ORDER BY
         s.fecha_programada,
@@ -78,18 +80,19 @@ export class AsistenciaService {
         SELECT
           a.*,
           i.id_estudiante,
+          e.codigo,
           e.nombres,
           e.apellidos,
           s.id_grupo,
           s.fecha_programada,
-          s.hora_inicio,
-          s.hora_fin
-        FROM asistencia a
-        INNER JOIN inscripcion i
+          CONVERT(VARCHAR(5), s.hora_inicio, 108) AS hora_inicio,
+          CONVERT(VARCHAR(5), s.hora_finalizacion, 108) AS hora_finalizacion
+        FROM ASISTENCIA a
+        INNER JOIN INSCRIPCION i
           ON a.id_inscripcion = i.id_inscripcion
-        INNER JOIN estudiante e
+        INNER JOIN ESTUDIANTE e
           ON i.id_estudiante = e.id_estudiante
-        INNER JOIN sesion_clase s
+        INNER JOIN SESION_CLASE s
           ON a.id_sesion = s.id_sesion
         WHERE a.id_asistencia = @id;
       `);
@@ -108,41 +111,42 @@ export class AsistenciaService {
     request = this.databaseService.getPool().request(),
     lock = false,
   ): Promise<{
-    sesion: { id_sesion: number; estado_sesion: string };
+    sesion: { id_sesion: number; estado: string };
     estudiantes: EstudianteSesion[];
   }> {
     const result = await request.input('sesion', id).query(`
-      SELECT id_sesion, id_grupo, fecha_programada, estado_sesion
-      FROM sesion_clase ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''}
+      SELECT id_sesion, id_grupo, fecha_programada, estado
+      FROM SESION_CLASE ${lock ? 'WITH (UPDLOCK, HOLDLOCK)' : ''}
       WHERE id_sesion = @sesion;
 
-      SELECT i.id_inscripcion, i.id_estudiante, e.nombres, e.apellidos,
+      SELECT i.id_inscripcion, i.id_estudiante, e.codigo, e.nombres, e.apellidos,
         a.id_asistencia, a.estado_asistencia, a.observacion,
         CAST(CASE WHEN EXISTS (
-          SELECT 1 FROM dbo.vw_estado_cuenta o
+          SELECT 1 FROM ${ESTADO_CUENTA} o
           WHERE o.id_inscripcion = i.id_inscripcion AND o.estado <> 'ANULADA'
             AND o.fecha_vencimiento < s.fecha_programada
-            AND o.monto_ajustado > COALESCE((
-              SELECT SUM(p.monto_pagado) FROM pago p
-              WHERE p.id_obligacion = o.id_obligacion AND p.fecha_pago <= s.fecha_programada
+            AND o.saldo_neto + o.pagado > COALESCE((
+              SELECT SUM(p.monto_pagado) FROM PAGO p
+              WHERE p.id_obligacion = o.id_obligacion
+                AND CAST(p.fecha_pago AS DATE) <= s.fecha_programada
             ), 0)
             AND NOT EXISTS (
-              SELECT 1 FROM prorroga pr WHERE pr.id_obligacion = o.id_obligacion
-                AND s.fecha_programada BETWEEN pr.fecha_inicio AND pr.fecha_fin
+              SELECT 1 FROM PRORROGA pr WHERE pr.id_obligacion = o.id_obligacion
+                AND s.fecha_programada BETWEEN pr.fecha_inicio AND pr.fecha_finalizacion
             )
         ) THEN 1 ELSE 0 END AS bit) AS tiene_mora
-      FROM sesion_clase s
-      JOIN inscripcion i ON i.id_grupo = s.id_grupo
-      JOIN estudiante e ON e.id_estudiante = i.id_estudiante
-      LEFT JOIN asistencia a ON a.id_sesion = s.id_sesion AND a.id_inscripcion = i.id_inscripcion
+      FROM SESION_CLASE s
+      JOIN INSCRIPCION i ON i.id_grupo = s.id_grupo
+      JOIN ESTUDIANTE e ON e.id_estudiante = i.id_estudiante
+      LEFT JOIN ASISTENCIA a ON a.id_sesion = s.id_sesion AND a.id_inscripcion = i.id_inscripcion
       WHERE s.id_sesion = @sesion AND (
-        a.id_asistencia IS NOT NULL OR (s.estado_sesion = 'PROGRAMADA'
-          AND i.estado_inscripcion = 'ACTIVA' AND i.fecha_inscripcion <= s.fecha_programada)
+        a.id_asistencia IS NOT NULL OR (s.estado = 'PROGRAMADA'
+          AND i.estado = 'ACTIVA' AND i.fecha_inscripcion <= s.fecha_programada)
       )
       ORDER BY e.apellidos, e.nombres, i.id_inscripcion;
     `);
     const [sesiones, estudiantes] = result.recordsets as [
-      { id_sesion: number; estado_sesion: string }[],
+      { id_sesion: number; estado: string }[],
       EstudianteSesion[],
     ];
     if (!sesiones.length) throw new NotFoundException('La sesión no existe.');
@@ -156,7 +160,7 @@ export class AsistenciaService {
         tx.request(),
         true,
       );
-      if (sesion.estado_sesion === 'CANCELADA') {
+      if (sesion.estado === 'CANCELADA') {
         throw new BadRequestException('La sesión está cancelada.');
       }
 
@@ -200,23 +204,23 @@ export class AsistenciaService {
           .input('estado', estado)
           .input(
             'observacion',
-            sql.VarChar(sql.MAX),
+            sql.NVarChar(500),
             asistencia.observacion ?? null,
           )
           .query<AsistenciaRegistrada>(
             `
             IF EXISTS (
-              SELECT 1 FROM resultado_evaluacion r JOIN evaluacion e ON e.id_evaluacion = r.id_evaluacion
+              SELECT 1 FROM RESULTADO_EVALUACION r JOIN EVALUACION e ON e.id_evaluacion = r.id_evaluacion
               WHERE e.id_sesion = @sesion AND r.id_inscripcion = @inscripcion
                 AND ((@estado = 'PRESENTE' AND r.estado_resultado = 'NO_SE_PRESENTO')
                   OR (@estado <> 'PRESENTE' AND r.estado_resultado = 'CALIFICADO'))
             )
               THROW 50001, 'El cambio es incompatible con los resultados de evaluación registrados.', 1;
-            IF EXISTS (SELECT 1 FROM asistencia WHERE id_sesion = @sesion AND id_inscripcion = @inscripcion)
-              UPDATE asistencia SET estado_asistencia = @estado, observacion = @observacion
+            IF EXISTS (SELECT 1 FROM ASISTENCIA WHERE id_sesion = @sesion AND id_inscripcion = @inscripcion)
+              UPDATE ASISTENCIA SET estado_asistencia = @estado, observacion = @observacion
                 OUTPUT INSERTED.* WHERE id_sesion = @sesion AND id_inscripcion = @inscripcion;
             ELSE
-              INSERT INTO asistencia (id_sesion, id_inscripcion, estado_asistencia, observacion)
+              INSERT INTO ASISTENCIA (id_sesion, id_inscripcion, estado_asistencia, observacion)
                 OUTPUT INSERTED.* VALUES (@sesion, @inscripcion, @estado, @observacion);
           `,
           )

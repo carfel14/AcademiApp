@@ -15,12 +15,12 @@ import { UpdateEvaluacionDto } from './dto/update-evaluacion.dto';
 
 @Controller('evaluaciones')
 export class EvaluacionController {
-  constructor(
-    private readonly evaluacionService: EvaluacionService,
-  ) {}
+  constructor(private readonly evaluacionService: EvaluacionService) {}
 
   @Get()
-  getEvaluaciones(@Query('sesion', new ParseIntPipe({ optional: true })) sesion?: number) {
+  getEvaluaciones(
+    @Query('sesion', new ParseIntPipe({ optional: true })) sesion?: number,
+  ) {
     return this.evaluacionService.getEvaluaciones(sesion);
   }
 
@@ -39,9 +39,6 @@ export class EvaluacionController {
     @Param('id', ParseIntPipe) id: number,
     @Body() evaluacion: UpdateEvaluacionDto,
   ) {
-    return this.evaluacionService.updateEvaluacion(
-      id,
-      evaluacion,
-    );
+    return this.evaluacionService.updateEvaluacion(id, evaluacion);
   }
 }

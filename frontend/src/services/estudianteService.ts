@@ -1,84 +1,47 @@
-import { apiFetch } from "./api";
 // src/services/estudianteService.ts
+import { api } from "./api";
 import type { Estudiante } from "../types/estudiante";
 import type { EstudianteFormData } from "../schema/estudianteSchema";
 
 const API_URL = "/estudiantes";
 
-function normalizarEstudiante(e: Partial<Estudiante>): Estudiante {
+function normalizarEstudiante(e: Estudiante): Estudiante {
   return {
-    id_estudiante: e.id_estudiante ?? 0,
-    codigo_estudiante: e.codigo_estudiante ?? `EST-${String(e.id_estudiante ?? 0).padStart(6, "0")}`,
-    nombres: e.nombres ?? "",
-    apellidos: e.apellidos ?? "",
+    ...e,
     fecha_nacimiento: e.fecha_nacimiento ? e.fecha_nacimiento.substring(0, 10) : null,
-    email: e.email ?? null,
-    telefono: e.telefono ?? null,
     fecha_registro: e.fecha_registro ? e.fecha_registro.substring(0, 10) : "",
-    estado: (e.estado as "ACTIVO" | "INACTIVO") ?? "ACTIVO",
+  };
+}
+
+function payload(data: EstudianteFormData) {
+  return {
+    ...(data.codigo ? { codigo: data.codigo } : {}),
+    nombres: data.nombres,
+    apellidos: data.apellidos,
+    fecha_nacimiento: data.fecha_nacimiento || null,
+    email: data.email || null,
+    telefono: data.telefono || null,
+    canal_preferido: data.canal_preferido,
   };
 }
 
 export async function obtenerEstudiantes(): Promise<Estudiante[]> {
-  const res = await apiFetch(API_URL);
-  if (!res.ok) throw new Error("No se pudieron obtener los estudiantes");
-  const data = await res.json();
+  const data = await api<Estudiante[]>(API_URL);
   return Array.isArray(data) ? data.map(normalizarEstudiante) : [];
 }
 
 export async function obtenerEstudiante(id: number): Promise<Estudiante> {
-  const res = await apiFetch(`${API_URL}/${id}`);
-  if (!res.ok) throw new Error("No se pudo obtener el estudiante");
-  const data = await res.json();
-  return normalizarEstudiante(data);
+  return normalizarEstudiante(await api<Estudiante>(`${API_URL}/${id}`));
 }
 
 export async function crearEstudiante(data: EstudianteFormData): Promise<Estudiante> {
-  const res = await apiFetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      nombres: data.nombres,
-      apellidos: data.apellidos,
-      fecha_nacimiento: data.fecha_nacimiento || null,
-      email: data.email || null,
-      telefono: data.telefono || null,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => null);
-    throw new Error(err?.message || "No se pudo registrar el estudiante");
-  }
-
-  return normalizarEstudiante(await res.json());
+  return normalizarEstudiante(await api<Estudiante>(API_URL, "POST", payload(data)));
 }
 
-export async function actualizarEstudiante(
-  id: number,
-  data: EstudianteFormData
-): Promise<Estudiante> {
-  const res = await apiFetch(`${API_URL}/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      nombres: data.nombres,
-      apellidos: data.apellidos,
-      fecha_nacimiento: data.fecha_nacimiento || null,
-      email: data.email || null,
-      telefono: data.telefono || null,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => null);
-    throw new Error(err?.message || "No se pudo actualizar el estudiante");
-  }
-
-  return normalizarEstudiante(await res.json());
+export async function actualizarEstudiante(id: number, data: EstudianteFormData): Promise<Estudiante> {
+  return normalizarEstudiante(await api<Estudiante>(`${API_URL}/${id}`, "PATCH", payload(data)));
 }
 
 export async function eliminarEstudiante(id: number): Promise<void> {
-  const res = await apiFetch(`${API_URL}/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("No se pudo desactivar el estudiante");
+  await api(`${API_URL}/${id}`, "DELETE");
 }

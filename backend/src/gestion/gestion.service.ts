@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as sql from 'mssql';
+import { ESTADO_CUENTA } from '../database/consultas';
 import { DatabaseService } from '../database/database.service';
 import { catalogos, validar } from './catalogos';
 
@@ -19,10 +20,11 @@ export class GestionService {
       config.parent && parent !== undefined
         ? `WHERE ${config.parent} = @parent`
         : '';
-    if (where) request.input('parent', parent);
+    if (where) request.input('parent', sql.Int, parent);
     return (
       await request.query(`
-      SELECT * FROM dbo.${config.table} ${where} ORDER BY ${config.sort ?? config.key}, ${config.key}
+      SELECT * FROM dbo.${config.table} ${where}
+      ORDER BY ${config.sort ? `${config.sort}, ` : ''}${config.key}
     `)
     ).recordset;
   }
@@ -74,13 +76,19 @@ export class GestionService {
   }
 
   async cuenta(id: number) {
-    const result = await this.db.getPool().request().input('id', id).query(`
-      SELECT * FROM vw_estado_cuenta WHERE id_obligacion = @id;
-      SELECT p.* FROM pago p WHERE p.id_obligacion = @id ORDER BY p.fecha_pago DESC, p.id_pago DESC;
-      SELECT * FROM prorroga WHERE id_obligacion = @id;
-      SELECT d.nombre, od.* FROM obligacion_descuento od JOIN descuento d ON d.id_descuento = od.id_descuento
-        WHERE od.id_obligacion = @id;
-      SELECT * FROM recargo WHERE id_obligacion = @id ORDER BY id_recargo DESC;
+    const result = await this.db.getPool().request().input('id', sql.Int, id)
+      .query(`
+      SELECT * FROM ${ESTADO_CUENTA} o WHERE o.id_obligacion = @id;
+      SELECT p.* FROM PAGO p WHERE p.id_obligacion = @id ORDER BY p.fecha_pago DESC, p.id_pago DESC;
+      SELECT * FROM PRORROGA WHERE id_obligacion = @id ORDER BY fecha_inicio, id_prorroga;
+      SELECT d.nombre, od.*,
+        CAST(CASE WHEN od.tipo_aplicado = 'PORCENTAJE' THEN ROUND(o.monto * od.valor_aplicado / 100, 2)
+          ELSE od.valor_aplicado END AS DECIMAL(12,2)) AS monto_descontado
+      FROM OBLIGACION_DESCUENTO od
+      JOIN DESCUENTO d ON d.id_descuento = od.id_descuento
+      JOIN OBLIGACION_PAGO o ON o.id_obligacion = od.id_obligacion
+      WHERE od.id_obligacion = @id;
+      SELECT * FROM RECARGO WHERE id_obligacion = @id ORDER BY id_recargo DESC;
     `);
     const [obligaciones, pagos, prorrogas, descuentos, recargos] =
       result.recordsets as sql.IRecordSet<unknown>[];
@@ -89,7 +97,7 @@ export class GestionService {
     return {
       obligacion: obligaciones[0],
       pagos,
-      prorroga: prorrogas[0] ?? null,
+      prorrogas,
       descuentos,
       recargos,
     };
@@ -97,11 +105,16 @@ export class GestionService {
 
   async ajuste(
     id: number,
-    data: { id_descuento?: number; monto?: number; motivo?: string },
+    data: {
+      id_descuento?: number;
+      observacion?: string;
+      monto?: number;
+      motivo?: string;
+    },
   ) {
     return this.db.transaction(async (tx) => {
-      const { recordset } = await tx.request().input('id', id).query(`
-        SELECT estado FROM obligacion_pago WITH (UPDLOCK, HOLDLOCK) WHERE id_obligacion = @id
+      const { recordset } = await tx.request().input('id', sql.Int, id).query(`
+        SELECT estado FROM OBLIGACION_PAGO WITH (UPDLOCK, HOLDLOCK) WHERE id_obligacion = @id
       `);
       if (!recordset.length)
         throw new NotFoundException('La obligación no existe.');
@@ -109,16 +122,20 @@ export class GestionService {
         throw new BadRequestException(
           'Solo puedes ajustar una obligación pendiente.',
         );
+      let registro: unknown;
       if (data.id_descuento) {
+        // Se guarda una copia del tipo y valor vigentes del descuento.
         const result = await tx
           .request()
-          .input('id', id)
-          .input('descuento', data.id_descuento)
+          .input('id', sql.Int, id)
+          .input('descuento', sql.Int, data.id_descuento)
+          .input('observacion', sql.NVarChar(500), data.observacion ?? null)
           .query(
             `
-          INSERT INTO obligacion_descuento (id_obligacion, id_descuento, tipo_aplicado, valor_aplicado)
+          INSERT INTO OBLIGACION_DESCUENTO (id_obligacion, id_descuento, tipo_aplicado, valor_aplicado, observacion)
           OUTPUT INSERTED.*
-          SELECT @id, id_descuento, tipo, valor FROM descuento WHERE id_descuento = @descuento AND estado = 'ACTIVO'
+          SELECT @id, id_descuento, tipo, valor, @observacion FROM DESCUENTO
+          WHERE id_descuento = @descuento AND estado = 'ACTIVO'
         `,
           )
           .catch((error) => {
@@ -128,20 +145,26 @@ export class GestionService {
           });
         if (!result.recordset.length)
           throw new BadRequestException('Selecciona un descuento activo.');
+        registro = result.recordset[0];
       } else {
-        await tx
+        // RECARGO tiene trigger de bitácora: sin OUTPUT.
+        const result = await tx
           .request()
-          .input('id', id)
+          .input('id', sql.Int, id)
           .input('monto', sql.Decimal(10, 2), data.monto)
-          .input('motivo', data.motivo).query(`
-            INSERT INTO recargo (id_obligacion, monto, motivo) VALUES (@id, @monto, @motivo)
+          .input('motivo', sql.NVarChar(200), data.motivo).query(`
+            INSERT INTO RECARGO (id_obligacion, monto, motivo) VALUES (@id, @monto, @motivo);
+            SELECT * FROM RECARGO WHERE id_recargo = SCOPE_IDENTITY();
           `);
+        registro = result.recordset[0];
       }
-      const saldo = (
-        await tx.request().input('id', id).query(`
-        SELECT saldo_pendiente FROM vw_estado_cuenta WHERE id_obligacion = @id
-      `)
-      ).recordset[0].saldo_pendiente;
+      const saldo = Number(
+        (
+          await tx.request().input('id', sql.Int, id).query(`
+            SELECT saldo_neto FROM ${ESTADO_CUENTA} o WHERE o.id_obligacion = @id
+          `)
+        ).recordset[0].saldo_neto,
+      );
       if (saldo < 0)
         throw new BadRequestException(
           'El descuento supera el saldo pendiente.',
@@ -149,52 +172,85 @@ export class GestionService {
       if (saldo === 0) {
         await tx
           .request()
-          .input('id', id)
+          .input('id', sql.Int, id)
           .query(
-            "UPDATE obligacion_pago SET estado = 'PAGADA' WHERE id_obligacion = @id",
+            "UPDATE OBLIGACION_PAGO SET estado = 'PAGADA' WHERE id_obligacion = @id",
           );
       }
-      return { id_obligacion: id, saldo_pendiente: saldo };
+      return { id_obligacion: id, saldo_neto: saldo, registro };
     });
   }
 
   async notificaciones() {
     return (
       await this.db.getPool().request().query(`
-      SELECT TOP (500) n.*, o.id_inscripcion, p.nombre AS plantilla, p.canal, CONCAT(e.nombres, ' ', e.apellidos) AS estudiante
-      FROM notificacion n JOIN plantilla_notificacion p ON p.id_plantilla = n.id_plantilla
-      JOIN estudiante e ON e.id_estudiante = n.id_estudiante
-      LEFT JOIN obligacion_pago o ON o.id_obligacion = n.id_obligacion ORDER BY n.id_notificacion DESC
+      SELECT TOP (500) n.*, o.id_inscripcion, p.nombre AS plantilla, p.canal,
+        CONCAT(e.nombres, ' ', e.apellidos) AS estudiante
+      FROM NOTIFICACION n
+      JOIN PLANTILLA_NOTIFICACION p ON p.id_plantilla = n.id_plantilla
+      JOIN ESTUDIANTE e ON e.id_estudiante = n.id_estudiante
+      LEFT JOIN OBLIGACION_PAGO o ON o.id_obligacion = n.id_obligacion
+      ORDER BY n.id_notificacion DESC
     `)
     ).recordset;
   }
 
+  /** Cola de envío del script (vw_notificaciones_pendientes). */
+  async pendientes() {
+    return (
+      await this.db.getPool().request().query(`
+        SELECT * FROM vw_notificaciones_pendientes ORDER BY fecha_programada, id_notificacion
+      `)
+    ).recordset;
+  }
+
+  /** Ejecuta sp_generar_recordatorios tal como lo define el script. */
   async generarRecordatorios(fecha: string) {
-    return this.db.transaction(async (tx) => {
-      const result = await tx.request().input('fecha', sql.VarChar(10), fecha)
-        .query(`
-        DECLARE @dia date = CONVERT(date, @fecha, 23);
-        INSERT INTO notificacion (id_obligacion, id_plantilla, id_estudiante, destino, fecha_programada)
-        SELECT DISTINCT o.id_obligacion, p.id_plantilla, e.id_estudiante,
-          CASE WHEN p.canal = 'EMAIL' THEN TRIM(e.email) ELSE TRIM(e.telefono) END, @dia
-        FROM vw_estado_cuenta o JOIN inscripcion i ON i.id_inscripcion = o.id_inscripcion
-        JOIN estudiante e ON e.id_estudiante = i.id_estudiante
-        JOIN regla_recordatorio r ON DATEADD(day, r.dias_respecto_vencimiento, o.vencimiento_efectivo) = @dia
-        JOIN plantilla_notificacion p ON p.id_plantilla = r.id_plantilla
-        WHERE o.estado = 'PENDIENTE' AND o.saldo_pendiente > 0 AND r.estado = 'ACTIVO' AND p.estado = 'ACTIVO'
-          AND i.estado_inscripcion <> 'CANCELADA'
-          AND NULLIF(CASE WHEN p.canal = 'EMAIL' THEN TRIM(e.email) ELSE TRIM(e.telefono) END, '') IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM notificacion n WITH (UPDLOCK, HOLDLOCK)
-            WHERE n.id_obligacion = o.id_obligacion AND n.id_plantilla = p.id_plantilla AND n.fecha_programada = @dia);
-        SELECT @@ROWCOUNT AS total;
+    const result = await this.db
+      .getPool()
+      .request()
+      .input('fecha', sql.VarChar(10), fecha).query(`
+        DECLARE @dia DATE = CONVERT(DATE, @fecha, 23);
+        EXEC sp_generar_recordatorios @fecha = @dia;
       `);
-      return { total: result.recordset[0].total };
-    });
+    return { total: result.recordset[0].notificaciones_generadas };
+  }
+
+  /** Ejecuta sp_marcar_notificacion después de intentar el envío. */
+  async marcarNotificacion(id: number, exito: boolean, error?: string) {
+    const existe = await this.db
+      .getPool()
+      .request()
+      .input('id', sql.Int, id)
+      .query(
+        'SELECT estado_envio FROM NOTIFICACION WHERE id_notificacion = @id',
+      );
+    if (!existe.recordset.length)
+      throw new NotFoundException('El recordatorio no existe.');
+    if (existe.recordset[0].estado_envio !== 'PENDIENTE')
+      throw new BadRequestException('El recordatorio ya no está pendiente.');
+    await this.db
+      .getPool()
+      .request()
+      .input('id', sql.Int, id)
+      .input('exito', sql.Bit, exito)
+      .input('error', sql.NVarChar(500), error ?? null)
+      .query(
+        'EXEC sp_marcar_notificacion @id_notificacion = @id, @exito = @exito, @error = @error',
+      );
+    return (
+      await this.db
+        .getPool()
+        .request()
+        .input('id', sql.Int, id)
+        .query('SELECT * FROM NOTIFICACION WHERE id_notificacion = @id')
+    ).recordset[0];
   }
 
   async cancelarNotificacion(id: number) {
-    const result = await this.db.getPool().request().input('id', id).query(`
-      UPDATE notificacion SET estado_envio = 'CANCELADO' OUTPUT INSERTED.id_notificacion
+    const result = await this.db.getPool().request().input('id', sql.Int, id)
+      .query(`
+      UPDATE NOTIFICACION SET estado_envio = 'CANCELADO' OUTPUT INSERTED.id_notificacion
       WHERE id_notificacion = @id AND estado_envio = 'PENDIENTE'
     `);
     if (!result.recordset.length)
@@ -205,8 +261,8 @@ export class GestionService {
   async bitacora() {
     return (
       await this.db.getPool().request().query(`
-      SELECT TOP (500) b.*, u.username FROM bitacora b
-      LEFT JOIN usuario u ON u.id_usuario = b.id_usuario ORDER BY b.id_bitacora DESC
+      SELECT TOP (500) b.*, u.usuario FROM BITACORA b
+      LEFT JOIN USUARIO u ON u.id_usuario = b.id_usuario ORDER BY b.id_bitacora DESC
     `)
     ).recordset;
   }
@@ -216,38 +272,53 @@ export class GestionService {
       .getPool()
       .request()
       .input('curso', sql.Int, curso ?? null).query(`
-      SELECT c.id_curso, c.nombre_curso, COUNT(DISTINCT i.id_estudiante) AS estudiantes,
+      SELECT c.id_curso, c.nombre AS curso, COUNT(DISTINCT i.id_estudiante) AS estudiantes,
         COUNT(i.id_inscripcion) AS inscripciones, COALESCE(SUM(p.total), 0) AS ingresos
-      FROM curso c LEFT JOIN grupo g ON g.id_curso = c.id_curso LEFT JOIN inscripcion i ON i.id_grupo = g.id_grupo
-      OUTER APPLY (SELECT SUM(pa.monto_pagado) AS total FROM pago pa
-        JOIN obligacion_pago o ON o.id_obligacion = pa.id_obligacion WHERE o.id_inscripcion = i.id_inscripcion) p
-      WHERE @curso IS NULL OR c.id_curso = @curso GROUP BY c.id_curso, c.nombre_curso ORDER BY c.nombre_curso;
+      FROM CURSO c
+      LEFT JOIN PLAN_ESTUDIO pl ON pl.id_curso = c.id_curso
+      LEFT JOIN GRUPO g ON g.id_plan = pl.id_plan
+      LEFT JOIN INSCRIPCION i ON i.id_grupo = g.id_grupo
+      OUTER APPLY (SELECT SUM(pa.monto_pagado) AS total FROM PAGO pa
+        JOIN OBLIGACION_PAGO o ON o.id_obligacion = pa.id_obligacion WHERE o.id_inscripcion = i.id_inscripcion) p
+      WHERE @curso IS NULL OR c.id_curso = @curso
+      GROUP BY c.id_curso, c.nombre ORDER BY c.nombre;
 
-      SELECT i.id_inscripcion, e.codigo_estudiante, CONCAT(e.nombres, ' ', e.apellidos) AS estudiante,
-        c.nombre_curso, g.nombre_grupo, i.estado_inscripcion,
+      SELECT i.id_inscripcion, e.codigo, CONCAT(e.nombres, ' ', e.apellidos) AS estudiante,
+        c.nombre AS curso, g.nombre AS grupo, i.estado,
         COALESCE(a.presentes, 0) AS presentes, a.total AS asistencias, n.promedio
-      FROM inscripcion i JOIN estudiante e ON e.id_estudiante = i.id_estudiante
-      JOIN grupo g ON g.id_grupo = i.id_grupo JOIN curso c ON c.id_curso = g.id_curso
+      FROM INSCRIPCION i
+      JOIN ESTUDIANTE e ON e.id_estudiante = i.id_estudiante
+      JOIN GRUPO g ON g.id_grupo = i.id_grupo
+      JOIN PLAN_ESTUDIO pl ON pl.id_plan = g.id_plan
+      JOIN CURSO c ON c.id_curso = pl.id_curso
       OUTER APPLY (SELECT COUNT(*) AS total, SUM(CASE WHEN estado_asistencia = 'PRESENTE' THEN 1 ELSE 0 END) AS presentes
-        FROM asistencia WHERE id_inscripcion = i.id_inscripcion) a
+        FROM ASISTENCIA WHERE id_inscripcion = i.id_inscripcion) a
       OUTER APPLY (SELECT CAST(AVG(nota) AS DECIMAL(5,2)) AS promedio
-        FROM resultado_evaluacion WHERE id_inscripcion = i.id_inscripcion) n
+        FROM RESULTADO_EVALUACION WHERE id_inscripcion = i.id_inscripcion) n
       WHERE @curso IS NULL OR c.id_curso = @curso ORDER BY e.apellidos, e.nombres;
 
-      SELECT o.id_obligacion, CONCAT(e.nombres, ' ', e.apellidos) AS estudiante, c.nombre_curso,
-        o.tipo_obligacion, o.vencimiento_efectivo, o.saldo_pendiente
-      FROM vw_estado_cuenta o JOIN inscripcion i ON i.id_inscripcion = o.id_inscripcion
-      JOIN estudiante e ON e.id_estudiante = i.id_estudiante JOIN grupo g ON g.id_grupo = i.id_grupo
-      JOIN curso c ON c.id_curso = g.id_curso
-      WHERE o.estado = 'PENDIENTE' AND o.saldo_pendiente > 0 AND o.vencimiento_efectivo < CAST(GETDATE() AS date)
-        AND (@curso IS NULL OR c.id_curso = @curso) ORDER BY o.vencimiento_efectivo;
+      SELECT o.id_obligacion, o.estudiante, c.nombre AS curso, o.grupo,
+        o.tipo, o.fecha_vencimiento_efectiva, o.dias_mora, o.saldo_neto
+      FROM ${ESTADO_CUENTA} o
+      JOIN INSCRIPCION i ON i.id_inscripcion = o.id_inscripcion
+      JOIN GRUPO g ON g.id_grupo = i.id_grupo
+      JOIN PLAN_ESTUDIO pl ON pl.id_plan = g.id_plan
+      JOIN CURSO c ON c.id_curso = pl.id_curso
+      WHERE o.estado = 'PENDIENTE' AND o.saldo_neto > 0 AND o.dias_mora > 0
+        AND (@curso IS NULL OR c.id_curso = @curso)
+      ORDER BY o.fecha_vencimiento_efectiva;
 
-      SELECT p.id_pago, p.fecha_pago, CONCAT(e.nombres, ' ', e.apellidos) AS estudiante, c.nombre_curso,
-        p.metodo_pago, p.monto_pagado
-      FROM pago p JOIN obligacion_pago o ON o.id_obligacion = p.id_obligacion
-      JOIN inscripcion i ON i.id_inscripcion = o.id_inscripcion JOIN estudiante e ON e.id_estudiante = i.id_estudiante
-      JOIN grupo g ON g.id_grupo = i.id_grupo JOIN curso c ON c.id_curso = g.id_curso
-      WHERE @curso IS NULL OR c.id_curso = @curso ORDER BY p.fecha_pago DESC, p.id_pago DESC;
+      SELECT p.id_pago, p.fecha_pago, CONCAT(e.nombres, ' ', e.apellidos) AS estudiante,
+        c.nombre AS curso, p.metodo_pago, p.monto_pagado
+      FROM PAGO p
+      JOIN OBLIGACION_PAGO o ON o.id_obligacion = p.id_obligacion
+      JOIN INSCRIPCION i ON i.id_inscripcion = o.id_inscripcion
+      JOIN ESTUDIANTE e ON e.id_estudiante = i.id_estudiante
+      JOIN GRUPO g ON g.id_grupo = i.id_grupo
+      JOIN PLAN_ESTUDIO pl ON pl.id_plan = g.id_plan
+      JOIN CURSO c ON c.id_curso = pl.id_curso
+      WHERE @curso IS NULL OR c.id_curso = @curso
+      ORDER BY p.fecha_pago DESC, p.id_pago DESC;
     `);
     const [cursos, estudiantes, vencidas, pagos] =
       recordsets as sql.IRecordSet<unknown>[];

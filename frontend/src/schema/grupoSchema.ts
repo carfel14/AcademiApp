@@ -5,10 +5,17 @@ const duracionMesesSchema = z
     error: "La duración debe ser un número",
   })
   .int("La duración debe ser un número entero")
-  .min(1, "La duración debe ser mayor a 0");
+  .min(1, "La duración debe ser mayor a 0")
+  .max(255, "La duración máxima es de 255 meses");
 
 export const crearGrupoSchema = z.object({
-  nombre_grupo: z
+  // GRUPO.id_plan: el curso se obtiene a través del plan de estudio
+  id_plan: z
+    .number({ error: "Selecciona un plan de estudio" })
+    .int()
+    .min(1, "Selecciona un plan de estudio"),
+
+  nombre: z
     .string()
     .min(1, "El nombre del grupo es obligatorio")
     .max(100, "El nombre no puede superar los 100 caracteres"),
@@ -21,7 +28,7 @@ export const crearGrupoSchema = z.object({
 });
 
 export const actualizarGrupoSchema = z.object({
-  nombre_grupo: z
+  nombre: z
     .string()
     .min(1, "El nombre del grupo es obligatorio")
     .max(100, "El nombre no puede superar los 100 caracteres"),

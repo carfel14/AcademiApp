@@ -8,8 +8,53 @@ import {
   NestInterceptor,
 } from '@nestjs/common';
 import { mergeMap } from 'rxjs';
+import { contextoUsuario } from '../database/database.service';
 import { AuthRequest } from './seguridad.controller';
 import { SeguridadService } from './seguridad.service';
+
+type Regla = { escritura: string[]; lectura: string[] };
+
+/**
+ * Permisos según la descripción de cada rol en los datos iniciales del script.
+ * ADMINISTRADOR tiene acceso total. Un usuario con varios roles suma permisos.
+ */
+const permisos: Record<string, Regla> = {
+  // Registra asistencia, notas y avance del plan
+  DOCENTE: {
+    escritura: [
+      'sesiones',
+      'asistencias',
+      'evaluaciones',
+      'resultados-evaluacion',
+    ],
+    lectura: [
+      'cursos',
+      'grupos',
+      'estudiantes',
+      'inscripciones',
+      'profesores',
+      'asignaciones-profesor',
+      'horarios',
+      'planes',
+    ],
+  },
+  // Registra pagos, prórrogas y descuentos
+  CAJERO: {
+    escritura: [
+      'obligaciones-pago',
+      'pagos',
+      'prorrogas',
+      'cobros',
+      'recordatorios',
+    ],
+    lectura: ['estudiantes', 'inscripciones', 'cursos', 'grupos'],
+  },
+  // Registra estudiantes e inscripciones
+  RECEPCION: {
+    escritura: ['estudiantes', 'inscripciones'],
+    lectura: ['cursos', 'grupos', 'planes', 'obligaciones-pago', 'pagos'],
+  },
+};
 
 @Injectable()
 export class SeguridadGuard implements CanActivate {
@@ -27,7 +72,10 @@ export class SeguridadGuard implements CanActivate {
 
     req.token = req.headers.authorization?.match(/^Bearer (.+)$/i)?.[1] ?? '';
     req.usuario = await this.seguridad.session(req.token);
-    if (req.usuario.rol === 'ADMIN') return true;
+    const store = contextoUsuario.getStore();
+    if (store) store.id_usuario = req.usuario.id_usuario;
+
+    if (req.usuario.roles.includes('ADMINISTRADOR')) return true;
     if (recurso === 'auth' && ['sesion', 'logout'].includes(accion))
       return true;
 
@@ -48,47 +96,16 @@ export class SeguridadGuard implements CanActivate {
       !['plantillas', 'reglas'].includes(catalogo)
     )
       throw new ForbiddenException();
-    const academico = [
-      'cursos',
-      'grupos',
-      'estudiantes',
-      'inscripciones',
-      'profesores',
-      'asignaciones-profesor',
-      'horarios',
-      'sesiones',
-      'asistencias',
-      'evaluaciones',
-      'resultados-evaluacion',
-      'planes',
-    ];
-    const docencia = [
-      'sesiones',
-      'asistencias',
-      'evaluaciones',
-      'resultados-evaluacion',
-    ];
-    const caja = [
-      'estudiantes',
-      'inscripciones',
-      'obligaciones-pago',
-      'pagos',
-      'prorrogas',
-      'cobros',
-      'recordatorios',
-    ];
-    if (
-      req.usuario.rol === 'PROFESOR' &&
-      (docencia.includes(recurso) ||
-        (req.method === 'GET' && academico.includes(recurso)))
-    )
-      return true;
-    if (
-      req.usuario.rol === 'CAJA' &&
-      (caja.includes(recurso) ||
-        (req.method === 'GET' && ['cursos', 'grupos'].includes(recurso)))
-    )
-      return true;
+
+    const permitido = req.usuario.roles.some((rol) => {
+      const regla = permisos[rol];
+      return (
+        regla &&
+        (regla.escritura.includes(recurso) ||
+          (req.method === 'GET' && regla.lectura.includes(recurso)))
+      );
+    });
+    if (permitido) return true;
     throw new ForbiddenException(
       'Tu rol no tiene permiso para esta operación.',
     );
@@ -96,31 +113,46 @@ export class SeguridadGuard implements CanActivate {
 }
 
 const catalogos: Record<string, [string, string]> = {
-  planes: ['plan_estudio', 'id_plan'],
-  unidades: ['unidad_estudio', 'id_unidad'],
-  temas: ['tema_estudio', 'id_tema'],
-  descuentos: ['descuento', 'id_descuento'],
-  plantillas: ['plantilla_notificacion', 'id_plantilla'],
-  reglas: ['regla_recordatorio', 'id_regla'],
+  planes: ['PLAN_ESTUDIO', 'id_plan'],
+  unidades: ['UNIDAD_ESTUDIO', 'id_unidad'],
+  temas: ['TEMA_ESTUDIO', 'id_tema'],
+  descuentos: ['DESCUENTO', 'id_descuento'],
+  plantillas: ['PLANTILLA_NOTIFICACION', 'id_plantilla'],
+  reglas: ['REGLA_RECORDATORIO', 'id_regla'],
 };
 
 const recursos: Record<string, [string, string]> = {
-  cursos: ['curso', 'id_curso'],
-  grupos: ['grupo', 'id_grupo'],
-  horarios: ['horario_clase', 'id_horario'],
-  estudiantes: ['estudiante', 'id_estudiante'],
-  profesores: ['profesor', 'id_profesor'],
-  'asignaciones-profesor': ['asignacion_profesor', 'id_asignacion'],
-  inscripciones: ['inscripcion', 'id_inscripcion'],
-  sesiones: ['sesion_clase', 'id_sesion'],
-  asistencias: ['asistencia', 'id_asistencia'],
-  evaluaciones: ['evaluacion', 'id_evaluacion'],
-  'resultados-evaluacion': ['resultado_evaluacion', 'id_resultado'],
-  'obligaciones-pago': ['obligacion_pago', 'id_obligacion'],
-  pagos: ['pago', 'id_pago'],
-  prorrogas: ['prorroga', 'id_prorroga'],
-  certificados: ['certificado', 'id_certificado'],
+  cursos: ['CURSO', 'id_curso'],
+  grupos: ['GRUPO', 'id_grupo'],
+  horarios: ['HORARIO_CLASE', 'id_horario'],
+  estudiantes: ['ESTUDIANTE', 'id_estudiante'],
+  profesores: ['PROFESOR', 'id_profesor'],
+  especialidades: ['ESPECIALIDAD', 'id_especialidad'],
+  'asignaciones-profesor': ['ASIGNACION_PROFESOR', 'id_asignacion'],
+  inscripciones: ['INSCRIPCION', 'id_inscripcion'],
+  sesiones: ['SESION_CLASE', 'id_sesion'],
+  contenidos: ['PROGRAMACION_CONTENIDO', 'id_programacion'],
+  asistencias: ['ASISTENCIA', 'id_asistencia'],
+  evaluaciones: ['EVALUACION', 'id_evaluacion'],
+  'resultados-evaluacion': ['RESULTADO_EVALUACION', 'id_resultado'],
+  'obligaciones-pago': ['OBLIGACION_PAGO', 'id_obligacion'],
+  pagos: ['PAGO', 'id_pago'],
+  prorrogas: ['PRORROGA', 'id_prorroga'],
+  certificados: ['CERTIFICADO', 'id_certificado'],
+  descuento: ['OBLIGACION_DESCUENTO', 'id_obligacion'],
+  recargo: ['RECARGO', 'id_recargo'],
+  recordatorios: ['NOTIFICACION', 'id_notificacion'],
 };
+
+/** Tablas que el script ya audita con sus propios triggers. */
+const auditadasPorTrigger = new Set([
+  'PAGO',
+  'OBLIGACION_PAGO',
+  'PRORROGA',
+  'RECARGO',
+  'RESULTADO_EVALUACION',
+  'CERTIFICADO',
+]);
 
 @Injectable()
 export class BitacoraInterceptor implements NestInterceptor {
@@ -130,13 +162,16 @@ export class BitacoraInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler) {
     const req = context.switchToHttp().getRequest<AuthRequest>();
-    const [, recurso, parametro, subrecurso] = req.path.split('/');
+    const partes = req.path.split('/');
+    const [, recurso, parametro, subrecurso] = partes;
     const operacion = {
       POST: 'INSERT',
       PATCH: 'UPDATE',
       PUT: 'UPDATE',
       DELETE: 'DELETE',
     }[req.method];
+    if (!operacion || recurso === 'auth' || !req.usuario) return next.handle();
+
     const catalogo =
       recurso === 'planes'
         ? parametro
@@ -144,30 +179,36 @@ export class BitacoraInterceptor implements NestInterceptor {
           ? subrecurso
           : '';
     const destino =
-      subrecurso === 'horarios'
-        ? recursos.horarios
-        : (catalogos[catalogo] ?? recursos[recurso]);
-    const [tabla, campo] = destino ?? [recurso, 'id'];
-    if (!operacion || recurso === 'auth' || !req.usuario) return next.handle();
+      catalogos[catalogo] ??
+      (['horarios', 'contenidos', 'descuento', 'recargo'].includes(subrecurso)
+        ? recursos[subrecurso]
+        : undefined) ??
+      (['especialidades', 'contenidos'].includes(parametro)
+        ? recursos[parametro]
+        : undefined) ??
+      recursos[recurso];
+    const [tabla, campo] = destino ?? [recurso.toUpperCase(), 'id'];
+    if (auditadasPorTrigger.has(tabla)) return next.handle();
 
     return next.handle().pipe(
       mergeMap(async (result) => {
         const id =
           result?.[campo] ??
-          result?.pago?.[campo] ??
           result?.inscripcion?.[campo] ??
           result?.sesion?.[campo] ??
           (Number(parametro) || Number(subrecurso) || null);
         const accion =
           req.method === 'DELETE' &&
           [
+            'cursos',
             'inscripciones',
             'sesiones',
             'grupos',
             'estudiantes',
             'profesores',
           ].includes(recurso) &&
-          subrecurso !== 'horarios'
+          !['horarios', 'contenidos'].includes(subrecurso) &&
+          parametro !== 'contenidos'
             ? 'UPDATE'
             : operacion;
         try {
@@ -187,7 +228,7 @@ export class BitacoraInterceptor implements NestInterceptor {
             await this.seguridad.audit(
               req.usuario.id_usuario,
               tabla,
-              id,
+              typeof id === 'number' ? id : null,
               accion,
               detalle,
             );

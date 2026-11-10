@@ -16,8 +16,14 @@ export class AsignacionProfesorService {
     const pool = this.databaseService.getPool();
 
     const result = await pool.request().query(`
-            SELECT *
-            FROM asignacion_profesor
+            SELECT a.*, CONCAT(p.nombres, ' ', p.apellidos) AS profesor,
+              g.nombre AS grupo, c.nombre AS curso
+            FROM ASIGNACION_PROFESOR a
+            JOIN PROFESOR p ON p.id_profesor = a.id_profesor
+            JOIN GRUPO g ON g.id_grupo = a.id_grupo
+            JOIN PLAN_ESTUDIO pl ON pl.id_plan = g.id_plan
+            JOIN CURSO c ON c.id_curso = pl.id_curso
+            ORDER BY a.fecha_asignacion DESC, a.id_asignacion DESC
         `);
 
     return result.recordset;
@@ -28,7 +34,7 @@ export class AsignacionProfesorService {
 
     const result = await pool.request().input('id', id).query(`
                 SELECT *
-                FROM asignacion_profesor
+                FROM ASIGNACION_PROFESOR
                 WHERE id_asignacion = @id
             `);
 
@@ -49,7 +55,7 @@ export class AsignacionProfesorService {
       .request()
       .input('id_profesor', asignacion.id_profesor).query(`
                 SELECT id_profesor, estado
-                FROM profesor
+                FROM PROFESOR
                 WHERE id_profesor = @id_profesor
             `);
 
@@ -69,7 +75,7 @@ export class AsignacionProfesorService {
     const grupo = await pool.request().input('id_grupo', asignacion.id_grupo)
       .query(`
                 SELECT id_grupo, estado
-                FROM grupo
+                FROM GRUPO
                 WHERE id_grupo = @id_grupo
             `);
 
@@ -79,9 +85,9 @@ export class AsignacionProfesorService {
       );
     }
 
-    if (grupo.recordset[0].estado !== 'ACTIVO') {
+    if (grupo.recordset[0].estado !== 'EN_CURSO') {
       throw new BadRequestException(
-        'No se puede asignar un profesor a un grupo que no está activo.',
+        'No se puede asignar un profesor a un grupo que no está en curso.',
       );
     }
 
@@ -91,7 +97,7 @@ export class AsignacionProfesorService {
       .input('id_profesor', asignacion.id_profesor)
       .input('id_grupo', asignacion.id_grupo).query(`
                 SELECT id_asignacion
-                FROM asignacion_profesor
+                FROM ASIGNACION_PROFESOR
                 WHERE id_profesor = @id_profesor
                 AND id_grupo = @id_grupo
             `);
@@ -107,7 +113,7 @@ export class AsignacionProfesorService {
       .request()
       .input('id_profesor', asignacion.id_profesor)
       .input('id_grupo', asignacion.id_grupo).query(`
-                INSERT INTO asignacion_profesor (
+                INSERT INTO ASIGNACION_PROFESOR (
                     id_profesor,
                     id_grupo
                 )
@@ -125,7 +131,7 @@ export class AsignacionProfesorService {
     const pool = this.databaseService.getPool();
 
     const result = await pool.request().input('id', id).query(`
-            DELETE FROM asignacion_profesor
+            DELETE FROM ASIGNACION_PROFESOR
             WHERE id_asignacion = @id
         `);
 

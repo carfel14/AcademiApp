@@ -27,13 +27,14 @@ export class EvaluacionService {
         e.*,
         s.id_grupo,
         s.fecha_programada,
-        s.hora_inicio,
-        s.hora_fin,
-        g.nombre_grupo
-      FROM evaluacion e
-      INNER JOIN sesion_clase s
+        CONVERT(VARCHAR(5), s.hora_inicio, 108) AS hora_inicio,
+        CONVERT(VARCHAR(5), s.hora_finalizacion, 108) AS hora_finalizacion,
+        s.estado AS estado_sesion,
+        g.nombre AS grupo
+      FROM EVALUACION e
+      INNER JOIN SESION_CLASE s
         ON e.id_sesion = s.id_sesion
-      INNER JOIN grupo g
+      INNER JOIN GRUPO g
         ON s.id_grupo = g.id_grupo
       WHERE @sesion IS NULL OR s.id_sesion = @sesion
       ORDER BY
@@ -56,14 +57,14 @@ export class EvaluacionService {
           e.*,
           s.id_grupo,
           s.fecha_programada,
-          s.hora_inicio,
-          s.hora_fin,
-          s.estado_sesion,
-          g.nombre_grupo
-        FROM evaluacion e
-        INNER JOIN sesion_clase s
+          CONVERT(VARCHAR(5), s.hora_inicio, 108) AS hora_inicio,
+          CONVERT(VARCHAR(5), s.hora_finalizacion, 108) AS hora_finalizacion,
+          s.estado AS estado_sesion,
+          g.nombre AS grupo
+        FROM EVALUACION e
+        INNER JOIN SESION_CLASE s
           ON e.id_sesion = s.id_sesion
-        INNER JOIN grupo g
+        INNER JOIN GRUPO g
           ON s.id_grupo = g.id_grupo
         WHERE e.id_evaluacion = @id;
       `);
@@ -88,8 +89,8 @@ export class EvaluacionService {
         SELECT
           s.id_sesion,
           s.id_grupo,
-          s.estado_sesion
-        FROM sesion_clase s WITH (UPDLOCK, HOLDLOCK)
+          s.estado AS estado_sesion
+        FROM SESION_CLASE s WITH (UPDLOCK, HOLDLOCK)
         WHERE s.id_sesion = @id_sesion;
       `);
 
@@ -113,17 +114,17 @@ export class EvaluacionService {
       const result = await tx
         .request()
         .input('id_sesion', evaluacion.id_sesion)
-        .input('tipo_evaluacion', evaluacion.tipo_evaluacion)
+        .input('tipo', evaluacion.tipo)
         .input('descripcion', evaluacion.descripcion ?? null).query(`
-        INSERT INTO evaluacion (
+        INSERT INTO EVALUACION (
           id_sesion,
-          tipo_evaluacion,
+          tipo,
           descripcion
         )
         OUTPUT INSERTED.*
         VALUES (
           @id_sesion,
-          @tipo_evaluacion,
+          @tipo,
           @descripcion
         );
       `);
@@ -138,9 +139,9 @@ export class EvaluacionService {
     const existente = await pool.request().input('id', id).query(`
         SELECT
           e.*,
-          s.estado_sesion
-        FROM evaluacion e
-        INNER JOIN sesion_clase s
+          s.estado AS estado_sesion
+        FROM EVALUACION e
+        INNER JOIN SESION_CLASE s
           ON e.id_sesion = s.id_sesion
         WHERE e.id_evaluacion = @id;
       `);
@@ -162,7 +163,7 @@ export class EvaluacionService {
       );
     }
 
-    const tipoEvaluacion = evaluacion.tipo_evaluacion ?? actual.tipo_evaluacion;
+    const tipo = evaluacion.tipo ?? actual.tipo;
 
     const descripcion =
       evaluacion.descripcion !== undefined
@@ -172,16 +173,16 @@ export class EvaluacionService {
     const result = await pool
       .request()
       .input('id', id)
-      .input('tipo_evaluacion', tipoEvaluacion)
+      .input('tipo', tipo)
       .input('descripcion', descripcion).query(`
-        UPDATE evaluacion
+        UPDATE EVALUACION
         SET
-          tipo_evaluacion = @tipo_evaluacion,
+          tipo = @tipo,
           descripcion = @descripcion
         WHERE id_evaluacion = @id;
 
         SELECT *
-        FROM evaluacion
+        FROM EVALUACION
         WHERE id_evaluacion = @id;
       `);
 

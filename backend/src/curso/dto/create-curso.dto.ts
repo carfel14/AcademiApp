@@ -3,24 +3,29 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
 export class CreateCursoDto {
   @IsString()
   @IsNotEmpty()
-  nombre_curso!: string;
+  @MaxLength(100)
+  nombre!: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   descripcion?: string;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  precio!: number;
+  @Max(99999999.99)
+  precio_total!: number;
 
-  @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  precio_matricula?: number;
+  @Max(99999999.99)
+  precio_matricula!: number;
 }

@@ -20,7 +20,9 @@ export class ResultadoEvaluacionController {
   ) {}
 
   @Get()
-  getResultados(@Query('sesion', new ParseIntPipe({ optional: true })) sesion?: number) {
+  getResultados(
+    @Query('sesion', new ParseIntPipe({ optional: true })) sesion?: number,
+  ) {
     return this.resultadoEvaluacionService.getResultados(sesion);
   }
 
@@ -34,10 +36,7 @@ export class ResultadoEvaluacionController {
     @Param('id', ParseIntPipe) id: number,
     @Body() resultados: CreateResultadosEvaluacionDto,
   ) {
-    return this.resultadoEvaluacionService.createResultados(
-      id,
-      resultados,
-    );
+    return this.resultadoEvaluacionService.createResultados(id, resultados);
   }
 
   @Patch(':id')
@@ -45,9 +44,6 @@ export class ResultadoEvaluacionController {
     @Param('id', ParseIntPipe) id: number,
     @Body() resultado: UpdateResultadoEvaluacionDto,
   ) {
-    return this.resultadoEvaluacionService.updateResultado(
-      id,
-      resultado,
-    );
+    return this.resultadoEvaluacionService.updateResultado(id, resultado);
   }
 }

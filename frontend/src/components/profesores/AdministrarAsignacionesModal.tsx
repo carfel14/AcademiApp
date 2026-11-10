@@ -44,7 +44,7 @@ function AdministrarAsignacionesModal({
     return grupos.filter(
       (g) =>
         g.id_curso === Number(cursoSeleccionadoId) &&
-        g.estado.toUpperCase() === "ACTIVO" &&
+        g.estado === "EN_CURSO" &&
         !gruposAsignadosIds.has(g.id_grupo)
     );
   }, [grupos, cursoSeleccionadoId, gruposAsignadosIds]);
@@ -114,10 +114,10 @@ function AdministrarAsignacionesModal({
             >
               <option value="">Selecciona un curso...</option>
               {cursos
-                .filter((c) => c.estado.toUpperCase() === "ACTIVO")
+                .filter((c) => c.estado === "ACTIVO")
                 .map((curso) => (
                   <option key={curso.id_curso} value={curso.id_curso}>
-                    {curso.nombre_curso}
+                    {curso.nombre}
                   </option>
                 ))}
             </select>
@@ -145,7 +145,7 @@ function AdministrarAsignacionesModal({
               </option>
               {gruposDisponibles.map((grupo) => (
                 <option key={grupo.id_grupo} value={grupo.id_grupo}>
-                  {grupo.nombre_grupo}
+                  {grupo.nombre}
                 </option>
               ))}
             </select>
@@ -197,7 +197,7 @@ function AdministrarAsignacionesModal({
                     <div className="flex items-center gap-2 flex-wrap">
                       <Layers className="h-4 w-4 text-blue-800 shrink-0" />
                       <p className="text-sm font-semibold text-gray-900 truncate">
-                        {grupo ? grupo.nombre_grupo : `Grupo #${asig.id_grupo}`}
+                        {grupo ? grupo.nombre : `Grupo #${asig.id_grupo}`}
                       </p>
                       {grupo && (
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
@@ -210,7 +210,7 @@ function AdministrarAsignacionesModal({
                       <p className="flex items-center gap-1.5 text-xs text-gray-500">
                         <BookOpen className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                         <span className="truncate">
-                          Curso: <strong className="font-medium text-gray-700">{curso.nombre_curso}</strong>
+                          Curso: <strong className="font-medium text-gray-700">{curso.nombre}</strong>
                         </span>
                       </p>
                     )}

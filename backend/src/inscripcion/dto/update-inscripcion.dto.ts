@@ -1,7 +1,8 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateInscripcionDto {
-    @IsOptional()
-    @IsString()
-    observacion?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  observacion?: string | null;
 }

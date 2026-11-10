@@ -49,7 +49,7 @@ function InscripcionCardList({
     <>
       <div className="mt-6 space-y-3">
         {inscripciones.map((item) => {
-          const esActiva = item.estado_inscripcion.toUpperCase() === "ACTIVA";
+          const esActiva = item.estado === "ACTIVA";
 
           return (
             <div
@@ -64,7 +64,7 @@ function InscripcionCardList({
                 <div>
                   <p className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Estudiante</p>
                   <p className="font-bold text-gray-900 text-sm">
-                    {item.nombre_estudiante} {item.apellido_estudiante}
+                    {item.nombres} {item.apellidos}
                   </p>
                 </div>
               </div>
@@ -75,12 +75,12 @@ function InscripcionCardList({
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <span className="flex items-center gap-1 font-semibold text-sm text-gray-900">
                     <Layers className="h-4 w-4 text-blue-800" />
-                    {item.nombre_grupo}
+                    {item.grupo}
                   </span>
                   <span className="text-gray-300">•</span>
                   <span className="flex items-center gap-1 text-xs text-gray-600 font-medium">
                     <BookOpen className="h-3.5 w-3.5 text-gray-400" />
-                    {item.nombre_curso}
+                    {item.curso}
                   </span>
                 </div>
               </div>
@@ -97,23 +97,23 @@ function InscripcionCardList({
 
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                    item.estado_inscripcion === "ACTIVA"
+                    item.estado === "ACTIVA"
                       ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                      : item.estado_inscripcion === "FINALIZADA"
+                      : item.estado === "FINALIZADA"
                       ? "bg-blue-50 text-blue-800 border border-blue-200"
                       : "bg-rose-50 text-rose-800 border border-rose-200"
                   }`}
                 >
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${
-                      item.estado_inscripcion === "ACTIVA"
+                      item.estado === "ACTIVA"
                         ? "bg-emerald-500"
-                        : item.estado_inscripcion === "FINALIZADA"
+                        : item.estado === "FINALIZADA"
                         ? "bg-blue-500"
                         : "bg-rose-500"
                     }`}
                   />
-                  {item.estado_inscripcion}
+                  {item.estado}
                 </span>
               </div>
 
@@ -155,9 +155,9 @@ function InscripcionCardList({
             <p className="mt-3 text-sm text-gray-600 leading-relaxed">
               ¿Estás seguro de cancelar la inscripción de{" "}
               <span className="font-semibold text-gray-900">
-                {inscripcionACancelar.nombre_estudiante} {inscripcionACancelar.apellido_estudiante}
+                {inscripcionACancelar.nombres} {inscripcionACancelar.apellidos}
               </span>{" "}
-              en el grupo <span className="font-semibold text-gray-900">{inscripcionACancelar.nombre_grupo}</span>?
+              en el grupo <span className="font-semibold text-gray-900">{inscripcionACancelar.grupo}</span>?
             </p>
             <p className="mt-2 text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
               Nota: Solo se puede cancelar si no existen mensualidades pagadas. Se anularán las cuotas pendientes.

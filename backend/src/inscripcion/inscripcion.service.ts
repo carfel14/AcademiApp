@@ -3,31 +3,21 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-
 import * as sql from 'mssql';
-
+import { FECHA_FIN_ESTIMADA, fechaISO } from 'src/database/consultas';
 import { DatabaseService } from 'src/database/database.service';
 import { PagoService } from 'src/pago/pago.service';
-
 import { CreateInscripcionDto } from './dto/create-inscripcion.dto';
 import { UpdateInscripcionDto } from './dto/update-inscripcion.dto';
 
-interface DatosGrupo {
-  id_grupo: number;
-  nombre_grupo: string;
-  estado: 'ACTIVO' | 'FINALIZADO' | 'CANCELADO';
-  fecha_inicio: string | Date;
-  fecha_fin: string | Date;
-  duracion_meses: number;
-  id_curso: number;
-}
-
-interface DatosCurso {
-  id_curso: number;
-  nombre_curso: string;
-  precio: number;
-  precio_matricula: number;
-}
+const SELECT_INSCRIPCION = `
+  SELECT i.*, e.codigo, e.nombres, e.apellidos,
+    g.nombre AS grupo, g.id_plan, p.id_curso, c.nombre AS curso
+  FROM INSCRIPCION i
+  JOIN ESTUDIANTE e ON e.id_estudiante = i.id_estudiante
+  JOIN GRUPO g ON g.id_grupo = i.id_grupo
+  JOIN PLAN_ESTUDIO p ON p.id_plan = g.id_plan
+  JOIN CURSO c ON c.id_curso = p.id_curso`;
 
 @Injectable()
 export class InscripcionService {
@@ -36,805 +26,300 @@ export class InscripcionService {
     private readonly pagoService: PagoService,
   ) {}
 
-  // ============================================================
-  // OBTENER TODAS
-  // ============================================================
-
   async getInscripciones() {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().query(`
-      SELECT
-        i.*,
-        e.nombres AS nombre_estudiante,
-        e.apellidos AS apellido_estudiante,
-        g.nombre_grupo,
-        c.nombre_curso
-      FROM inscripcion i
-      INNER JOIN estudiante e
-        ON i.id_estudiante = e.id_estudiante
-      INNER JOIN grupo g
-        ON i.id_grupo = g.id_grupo
-      INNER JOIN curso c
-        ON g.id_curso = c.id_curso
-      ORDER BY i.id_inscripcion DESC;
+    const result = await this.databaseService.getPool().request().query(`
+      ${SELECT_INSCRIPCION} ORDER BY i.id_inscripcion DESC
     `);
-
     return result.recordset;
   }
 
-  // ============================================================
-  // OBTENER UNA
-  // ============================================================
-
-  async getInscripcion(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id', sql.Int, id).query(`
-        SELECT
-          i.*,
-          e.nombres AS nombre_estudiante,
-          e.apellidos AS apellido_estudiante,
-          g.nombre_grupo,
-          c.nombre_curso
-        FROM inscripcion i
-        INNER JOIN estudiante e
-          ON i.id_estudiante = e.id_estudiante
-        INNER JOIN grupo g
-          ON i.id_grupo = g.id_grupo
-        INNER JOIN curso c
-          ON g.id_curso = c.id_curso
-        WHERE i.id_inscripcion = @id;
-      `);
-
-    if (result.recordset.length === 0) {
+  async getInscripcion(
+    id: number,
+    request = this.databaseService.getPool().request(),
+  ) {
+    const result = await request.input('id', sql.Int, id).query(`
+      ${SELECT_INSCRIPCION} WHERE i.id_inscripcion = @id
+    `);
+    if (!result.recordset.length)
       throw new NotFoundException(
         `La inscripción con id ${id} no fue encontrada.`,
       );
-    }
-
     return result.recordset[0];
   }
 
   async getInscripcionesPorGrupo(idGrupo: number) {
-    const pool = this.databaseService.getPool();
-
-    const result = await pool.request().input('id_grupo', idGrupo).query(`
-      SELECT
-        i.id_inscripcion,
-        i.id_estudiante,
-        i.id_grupo,
-        i.fecha_inscripcion,
-        i.estado_inscripcion,
-        i.observacion,
-
-        e.nombres,
-        e.apellidos,
-
-        g.nombre_grupo,
-
-        c.id_curso,
-        c.nombre_curso
-
-      FROM inscripcion i
-
-      INNER JOIN estudiante e
-        ON i.id_estudiante = e.id_estudiante
-
-      INNER JOIN grupo g
-        ON i.id_grupo = g.id_grupo
-
-      INNER JOIN curso c
-        ON g.id_curso = c.id_curso
-
-      WHERE i.id_grupo = @id_grupo
-
-      ORDER BY
-        e.apellidos,
-        e.nombres;
-    `);
-
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('id_grupo', sql.Int, idGrupo).query(`
+        ${SELECT_INSCRIPCION} WHERE i.id_grupo = @id_grupo
+        ORDER BY e.apellidos, e.nombres
+      `);
     return result.recordset;
   }
 
-  // ============================================================
-  // CREAR INSCRIPCIÓN
-  //
-  // Flujo:
-  //
-  // 1. Validar estudiante
-  // 2. Validar grupo
-  // 3. Validar fecha
-  // 4. Evitar duplicados
-  // 5. Obtener curso
-  // 6. Crear inscripción
-  // 7. Crear obligación de matrícula
-  // 8. Pagar automáticamente la matrícula
-  // 9. Generar mensualidades
-  // 10. COMMIT
-  //
-  // Todo ocurre dentro de una única transacción.
-  // ============================================================
-
+  /**
+   * Crea la inscripción, la obligación de MATRICULA (pagada en efectivo en el
+   * mismo acto) y una MENSUALIDAD por cada mes de duración del grupo, todo en
+   * una transacción.
+   */
   async createInscripcion(inscripcion: CreateInscripcionDto) {
-    const pool = this.databaseService.getPool();
-
-    // ==========================================================
-    // VERIFICAR ESTUDIANTE
-    // ==========================================================
-
-    const estudiante = await pool
-      .request()
-      .input('id_estudiante', sql.Int, inscripcion.id_estudiante).query(`
-        SELECT
-          id_estudiante,
-          estado
-        FROM estudiante
-        WHERE id_estudiante = @id_estudiante;
-      `);
-
-    if (estudiante.recordset.length === 0) {
-      throw new NotFoundException(
-        `El estudiante con id ${inscripcion.id_estudiante} no fue encontrado.`,
-      );
-    }
-
-    if (estudiante.recordset[0].estado !== 'ACTIVO') {
-      throw new BadRequestException(
-        'No se puede inscribir un estudiante que no está activo.',
-      );
-    }
-
-    // ==========================================================
-    // OBTENER Y VALIDAR GRUPO
-    // ==========================================================
-
-    const grupoResult = await pool
-      .request()
-      .input('id_grupo', sql.Int, inscripcion.id_grupo).query<DatosGrupo>(`
-        SELECT
-          g.id_grupo,
-          g.nombre_grupo,
-          g.estado,
-          g.fecha_inicio,
-          g.fecha_fin,
-          g.duracion_meses,
-          g.id_curso
-        FROM grupo g
-        WHERE g.id_grupo = @id_grupo;
-      `);
-
-    if (grupoResult.recordset.length === 0) {
-      throw new NotFoundException(
-        `El grupo con id ${inscripcion.id_grupo} no fue encontrado.`,
-      );
-    }
-
-    const grupo = grupoResult.recordset[0];
-
-    if (grupo.estado !== 'ACTIVO') {
-      throw new BadRequestException(
-        'No se puede inscribir un estudiante en un grupo que no está activo.',
-      );
-    }
-
-    // ==========================================================
-    // VALIDAR DURACIÓN
-    // ==========================================================
-
-    if (!grupo.duracion_meses || grupo.duracion_meses <= 0) {
-      throw new BadRequestException('El grupo tiene una duración inválida.');
-    }
-
-    const duracionMeses = Number(grupo.duracion_meses);
-
-    // ==========================================================
-    // VALIDAR FECHA DE INSCRIPCIÓN
-    //
-    // Permitido:
-    // - Antes del inicio
-    // - El mismo día del inicio
-    //
-    // No permitido:
-    // - Después del inicio
-    // ==========================================================
-
-    const fechaActualResult = await pool.request().query(`
-        SELECT CAST(GETDATE() AS DATE) AS fecha_actual;
-      `);
-
-    const hoy = this.formatearFecha(
-      fechaActualResult.recordset[0].fecha_actual,
-    );
-
-    const fechaInicio = this.formatearFecha(grupo.fecha_inicio);
-
-    if (hoy > fechaInicio) {
-      throw new BadRequestException(
-        'No se puede inscribir un estudiante después de la fecha de inicio del grupo.',
-      );
-    }
-
-    // ==========================================================
-    // VERIFICAR INSCRIPCIÓN DUPLICADA
-    // ==========================================================
-
-    const existente = await pool
-      .request()
-      .input('id_estudiante', sql.Int, inscripcion.id_estudiante)
-      .input('id_grupo', sql.Int, inscripcion.id_grupo).query(`
-        SELECT
-          id_inscripcion
-        FROM inscripcion
-        WHERE id_estudiante = @id_estudiante
-          AND id_grupo = @id_grupo
-          AND estado_inscripcion = 'ACTIVA';
-      `);
-
-    if (existente.recordset.length > 0) {
-      throw new BadRequestException(
-        'El estudiante ya está inscrito en este grupo.',
-      );
-    }
-
-    // ==========================================================
-    // OBTENER CURSO
-    //
-    // Necesitamos:
-    // - precio del curso
-    // - precio de matrícula
-    // ==========================================================
-
-    const cursoResult = await pool
-      .request()
-      .input('id_curso', sql.Int, grupo.id_curso).query<DatosCurso>(`
-        SELECT
-          id_curso,
-          nombre_curso,
-          precio,
-          precio_matricula
-        FROM curso
-        WHERE id_curso = @id_curso;
-      `);
-
-    if (cursoResult.recordset.length === 0) {
-      throw new NotFoundException(
-        `El curso con id ${grupo.id_curso} no fue encontrado.`,
-      );
-    }
-
-    const curso = cursoResult.recordset[0];
-
-    // ==========================================================
-    // VALIDAR PRECIOS
-    // ==========================================================
-
-    const precioCurso = Number(curso.precio);
-    const precioMatricula = Number(curso.precio_matricula);
-
-    if (precioCurso <= 0) {
-      throw new BadRequestException(
-        'El precio del curso debe ser mayor que cero.',
-      );
-    }
-
-    if (precioMatricula <= 0) {
-      throw new BadRequestException(
-        'El precio de matrícula debe ser mayor que cero.',
-      );
-    }
-
-    // ==========================================================
-    // CALCULAR MENSUALIDAD
-    // ==========================================================
-
-    const montoMensualidadBase =
-      Math.floor((precioCurso / duracionMeses) * 100) / 100;
-
-    const montoMensualidadBaseTotal = montoMensualidadBase * duracionMeses;
-
-    const diferencia =
-      Math.round((precioCurso - montoMensualidadBaseTotal) * 100) / 100;
-
-    // ==========================================================
-    // TRANSACCIÓN
-    // ==========================================================
-
-    const transaction = pool.transaction();
-
-    try {
-      await transaction.begin();
-
-      // ========================================================
-      // CREAR INSCRIPCIÓN
-      // ========================================================
-
-      const inscripcionResult = await transaction.request()
-        .input('id_estudiante', sql.Int, inscripcion.id_estudiante)
-        .input('id_grupo', sql.Int, inscripcion.id_grupo)
-        .input(
-          'observacion',
-          sql.VarChar(sql.MAX),
-          inscripcion.observacion ?? null,
-        ).query(`
-            INSERT INTO inscripcion (
-              id_estudiante,
-              id_grupo,
-              observacion
-            )
-            OUTPUT INSERTED.*
-            VALUES (
-              @id_estudiante,
-              @id_grupo,
-              @observacion
-            );
-          `);
-
-      const nuevaInscripcion = inscripcionResult.recordset[0];
-
-      const idInscripcion = nuevaInscripcion.id_inscripcion;
-
-      // ========================================================
-      // CREAR OBLIGACIÓN DE MATRÍCULA
-      //
-      // La matrícula vence el día de inicio del grupo.
-      //
-      // Ejemplo:
-      // Grupo inicia 10/08
-      // Matrícula vence 10/08
-      // ========================================================
-
-      const matriculaResult = await transaction.request()
-        .input('id_inscripcion', sql.Int, idInscripcion)
-        .input('tipo_obligacion', sql.VarChar(20), 'MATRICULA')
-        .input('fecha_vencimiento', sql.Date, fechaInicio)
-        .input('monto', sql.Numeric(10, 2), precioMatricula).query(`
-            INSERT INTO obligacion_pago (
-              id_inscripcion,
-              tipo_obligacion,
-              numero_cuota,
-              periodo,
-              fecha_vencimiento,
-              monto,
-              estado
-            )
-            OUTPUT INSERTED.*
-            VALUES (
-              @id_inscripcion,
-              @tipo_obligacion,
-              NULL,
-              NULL,
-              @fecha_vencimiento,
-              @monto,
-              'PENDIENTE'
-            );
-          `);
-
-      const matricula = matriculaResult.recordset[0];
-
-      // ========================================================
-      // PAGAR AUTOMÁTICAMENTE LA MATRÍCULA
-      //
-      // No usamos createPago(), porque necesitamos que el pago
-      // pertenezca a esta misma transacción.
-      // ========================================================
-
-      const pagoMatricula = await this.pagoService.registrarPagoEnTransaccion(
-        transaction,
-        matricula.id_obligacion,
-        precioMatricula,
-        'EFECTIVO',
-        'Pago automático de matrícula al realizar la inscripción.',
-      );
-
-      const matriculaActualizadaResult = await transaction.request().input('id_obligacion', sql.Int, matricula.id_obligacion).query(`
-      SELECT *
-      FROM obligacion_pago
-      WHERE id_obligacion = @id_obligacion;
-    `);
-
-      const matriculaActualizada = matriculaActualizadaResult.recordset[0];
-
-      // ========================================================
-      // GENERAR MENSUALIDADES
-      //
-      // Si inicia 10/08:
-      //
-      // cuota 1 -> 10/09
-      // cuota 2 -> 10/10
-      // cuota 3 -> 10/11
-      //
-      // La fecha de inscripción NO interviene.
-      // ========================================================
-
-      const mensualidades: object[] = [];
-
-      for (let numeroCuota = 1; numeroCuota <= duracionMeses; numeroCuota++) {
-        const fechaVencimiento = this.calcularFechaMensual(
-          fechaInicio,
-          numeroCuota,
+    return this.databaseService.transaction(async (tx) => {
+      const estudiante = (
+        await tx.request().input('id', sql.Int, inscripcion.id_estudiante)
+          .query(`
+          SELECT estado FROM ESTUDIANTE WHERE id_estudiante = @id
+        `)
+      ).recordset[0];
+      if (!estudiante)
+        throw new NotFoundException(
+          `El estudiante con id ${inscripcion.id_estudiante} no fue encontrado.`,
+        );
+      if (estudiante.estado !== 'ACTIVO')
+        throw new BadRequestException(
+          'No se puede inscribir un estudiante que no está activo.',
         );
 
-        const periodo = this.generarPeriodo(fechaVencimiento);
+      const grupo = (
+        await tx.request().input('id', sql.Int, inscripcion.id_grupo).query(`
+          SELECT g.id_grupo, g.nombre, g.estado, g.fecha_inicio, g.duracion_meses,
+            ${FECHA_FIN_ESTIMADA('g')} AS fecha_fin_estimada,
+            c.id_curso, c.nombre AS curso, c.precio_total, c.precio_matricula,
+            CONVERT(VARCHAR(10), CAST(GETDATE() AS DATE), 23) AS hoy
+          FROM GRUPO g WITH (UPDLOCK, HOLDLOCK)
+          JOIN PLAN_ESTUDIO p ON p.id_plan = g.id_plan
+          JOIN CURSO c ON c.id_curso = p.id_curso
+          WHERE g.id_grupo = @id
+        `)
+      ).recordset[0];
+      if (!grupo)
+        throw new NotFoundException(
+          `El grupo con id ${inscripcion.id_grupo} no fue encontrado.`,
+        );
+      if (grupo.estado !== 'EN_CURSO')
+        throw new BadRequestException(
+          'No se puede inscribir un estudiante en un grupo que no está en curso.',
+        );
+      const fechaInicio = fechaISO(grupo.fecha_inicio)!;
+      if (grupo.hoy > fechaInicio)
+        throw new BadRequestException(
+          'No se puede inscribir un estudiante después de la fecha de inicio del grupo.',
+        );
 
-        const esUltimaCuota = numeroCuota === duracionMeses;
+      // UQ_INSCRIPCION_id_estudiante_id_grupo: una sola inscripción por grupo,
+      // sin importar su estado.
+      const existente = (
+        await tx
+          .request()
+          .input('estudiante', sql.Int, inscripcion.id_estudiante)
+          .input('grupo', sql.Int, inscripcion.id_grupo).query(`
+            SELECT estado FROM INSCRIPCION
+            WHERE id_estudiante = @estudiante AND id_grupo = @grupo
+          `)
+      ).recordset[0];
+      if (existente)
+        throw new BadRequestException(
+          existente.estado === 'ACTIVA'
+            ? 'El estudiante ya está inscrito en este grupo.'
+            : `El estudiante ya tiene una inscripción ${existente.estado.toLowerCase()} en este grupo.`,
+        );
 
-        const montoMensualidad = esUltimaCuota
-          ? Math.round((montoMensualidadBase + diferencia) * 100) / 100
-          : montoMensualidadBase;
+      const precioTotal = Number(grupo.precio_total);
+      const precioMatricula = Number(grupo.precio_matricula);
+      const meses = Number(grupo.duracion_meses);
+      const base = Math.floor((precioTotal / meses) * 100) / 100;
+      const diferencia = Math.round((precioTotal - base * meses) * 100) / 100;
 
-        const mensualidadResult = await transaction.request()
-          .input('id_inscripcion', sql.Int, idInscripcion)
-          .input('tipo_obligacion', sql.VarChar(20), 'MENSUALIDAD')
-          .input('numero_cuota', sql.Int, numeroCuota)
-          .input('periodo', sql.VarChar(50), periodo)
-          .input('fecha_vencimiento', sql.Date, fechaVencimiento)
-          .input('monto', sql.Numeric(10, 2), montoMensualidad).query(`
-              INSERT INTO obligacion_pago (
-                id_inscripcion,
-                tipo_obligacion,
-                numero_cuota,
-                periodo,
-                fecha_vencimiento,
-                monto,
-                estado
-              )
-              OUTPUT INSERTED.*
-              VALUES (
-                @id_inscripcion,
-                @tipo_obligacion,
-                @numero_cuota,
-                @periodo,
-                @fecha_vencimiento,
-                @monto,
-                'PENDIENTE'
-              );
-            `);
+      const nueva = (
+        await tx
+          .request()
+          .input('estudiante', sql.Int, inscripcion.id_estudiante)
+          .input('grupo', sql.Int, inscripcion.id_grupo)
+          .input(
+            'observacion',
+            sql.NVarChar(500),
+            inscripcion.observacion ?? null,
+          ).query(`
+            INSERT INTO INSCRIPCION (id_estudiante, id_grupo, observacion)
+            OUTPUT INSERTED.id_inscripcion
+            VALUES (@estudiante, @grupo, @observacion);
+          `)
+      ).recordset[0];
+      const idInscripcion = nueva.id_inscripcion as number;
 
-        mensualidades.push(mensualidadResult.recordset[0]);
+      // La matrícula vence el día de inicio del grupo.
+      const matricula = await this.insertarObligacion(tx, {
+        id_inscripcion: idInscripcion,
+        tipo: 'MATRICULA',
+        numero_cuota: null,
+        periodo: null,
+        fecha_vencimiento: fechaInicio,
+        monto: precioMatricula,
+      });
+      const pagoMatricula =
+        precioMatricula > 0
+          ? await this.pagoService.registrarPagoEnTransaccion(
+              tx,
+              matricula.id_obligacion,
+              precioMatricula,
+              'EFECTIVO',
+              'Pago automático de matrícula al realizar la inscripción.',
+            )
+          : null;
+      if (precioMatricula === 0) {
+        await tx.request().input('id', sql.Int, matricula.id_obligacion).query(`
+          UPDATE OBLIGACION_PAGO SET estado = 'PAGADA' WHERE id_obligacion = @id
+        `);
       }
 
-      // ========================================================
-      // COMMIT
-      // ========================================================
+      // Cuota n vence n meses después del inicio; la última absorbe los centavos.
+      const mensualidades: Record<string, unknown>[] = [];
+      for (let cuota = 1; cuota <= meses; cuota++) {
+        const vencimiento = this.sumarMeses(fechaInicio, cuota);
+        mensualidades.push(
+          await this.insertarObligacion(tx, {
+            id_inscripcion: idInscripcion,
+            tipo: 'MENSUALIDAD',
+            numero_cuota: cuota,
+            periodo: vencimiento.slice(0, 7),
+            fecha_vencimiento: vencimiento,
+            monto:
+              cuota === meses
+                ? Math.round((base + diferencia) * 100) / 100
+                : base,
+          }),
+        );
+      }
 
-      await transaction.commit();
-
-      // ========================================================
-      // RETORNAR RESULTADO
-      // ========================================================
+      const matriculaActual = (
+        await tx.request().input('id', sql.Int, matricula.id_obligacion).query(`
+          SELECT * FROM OBLIGACION_PAGO WHERE id_obligacion = @id
+        `)
+      ).recordset[0];
 
       return {
         mensaje:
           'Inscripción creada, matrícula pagada y obligaciones de pago generadas correctamente.',
-
-        inscripcion: nuevaInscripcion,
-
+        inscripcion: await this.getInscripcion(idInscripcion, tx.request()),
         curso: {
-          id_curso: curso.id_curso,
-          nombre_curso: curso.nombre_curso,
-          precio: precioCurso,
+          id_curso: grupo.id_curso,
+          nombre: grupo.curso,
+          precio_total: precioTotal,
           precio_matricula: precioMatricula,
         },
-
         grupo: {
           id_grupo: grupo.id_grupo,
-          nombre_grupo: grupo.nombre_grupo,
+          nombre: grupo.nombre,
           fecha_inicio: fechaInicio,
-          fecha_fin: this.formatearFecha(grupo.fecha_fin),
-          duracion_meses: duracionMeses,
+          fecha_fin_estimada: fechaISO(grupo.fecha_fin_estimada),
+          duracion_meses: meses,
         },
-
         obligaciones: {
-          matricula: matriculaActualizada,
+          matricula: matriculaActual,
           mensualidades,
           total: 1 + mensualidades.length,
         },
-
         pago_matricula: pagoMatricula,
       };
-    } catch (error) {
-      // ========================================================
-      // ROLLBACK
-      // ========================================================
-
-      if (transaction._aborted === false) {
-        await transaction.rollback();
-      }
-
-      throw error;
-    }
+    });
   }
 
-  // ============================================================
-  // ACTUALIZAR INSCRIPCIÓN
-  // ============================================================
-
   async updateInscripcion(id: number, inscripcion: UpdateInscripcionDto) {
-    const pool = this.databaseService.getPool();
-
-    // ----------------------------------------------------------
-    // Verificar existencia
-    // ----------------------------------------------------------
-
-    const existente = await pool.request().input('id', sql.Int, id).query(`
-        SELECT *
-        FROM inscripcion
-        WHERE id_inscripcion = @id;
-      `);
-
-    if (existente.recordset.length === 0) {
-      throw new NotFoundException(
-        `La inscripción con id ${id} no fue encontrada.`,
-      );
-    }
-
-    // ----------------------------------------------------------
-    // Solo activas
-    // ----------------------------------------------------------
-
-    if (existente.recordset[0].estado_inscripcion !== 'ACTIVA') {
+    const actual = await this.getInscripcion(id);
+    if (actual.estado !== 'ACTIVA')
       throw new BadRequestException(
         'No se puede modificar una inscripción que ya fue finalizada o cancelada.',
       );
-    }
-
-    // ----------------------------------------------------------
-    // Actualizar observación
-    // ----------------------------------------------------------
-
-    await pool
+    await this.databaseService
+      .getPool()
       .request()
       .input('id', sql.Int, id)
-      .input(
-        'observacion',
-        sql.VarChar(sql.MAX),
-        inscripcion.observacion ?? null,
-      ).query(`
-        UPDATE inscripcion
-        SET observacion = @observacion
-        WHERE id_inscripcion = @id;
-      `);
-
-    // ----------------------------------------------------------
-    // Obtener actualizada
-    // ----------------------------------------------------------
-
-    const actualizado = await pool.request().input('id', sql.Int, id).query(`
-        SELECT
-          i.*,
-          e.nombres AS nombre_estudiante,
-          e.apellidos AS apellido_estudiante,
-          g.nombre_grupo,
-          c.nombre_curso
-        FROM inscripcion i
-        INNER JOIN estudiante e
-          ON i.id_estudiante = e.id_estudiante
-        INNER JOIN grupo g
-          ON i.id_grupo = g.id_grupo
-        INNER JOIN curso c
-          ON g.id_curso = c.id_curso
-        WHERE i.id_inscripcion = @id;
-      `);
-
-    return actualizado.recordset[0];
+      .input('observacion', sql.NVarChar(500), inscripcion.observacion ?? null)
+      .query(
+        'UPDATE INSCRIPCION SET observacion = @observacion WHERE id_inscripcion = @id',
+      );
+    return this.getInscripcion(id);
   }
 
-  // ============================================================
-  // CANCELAR INSCRIPCIÓN
-  // ============================================================
-
+  /**
+   * Cancela la inscripción y anula sus mensualidades pendientes. La matrícula
+   * se conserva. No se permite si ya hay pagos de mensualidades.
+   */
   async deleteInscripcion(id: number) {
-    const pool = this.databaseService.getPool();
-
-    const transaction = pool.transaction();
-
-    try {
-      await transaction.begin();
-
-      // ==========================================================
-      // VERIFICAR INSCRIPCIÓN
-      // ==========================================================
-
-      const inscripcionResult = await transaction.request().input(
-        'id_inscripcion',
-        sql.Int,
-        id,
-      ).query(`
-          SELECT
-            id_inscripcion,
-            estado_inscripcion
-          FROM inscripcion
-          WHERE id_inscripcion = @id_inscripcion;
-        `);
-
-      if (inscripcionResult.recordset.length === 0) {
+    return this.databaseService.transaction(async (tx) => {
+      const actual = (
+        await tx.request().input('id', sql.Int, id).query(`
+          SELECT estado FROM INSCRIPCION WITH (UPDLOCK, HOLDLOCK) WHERE id_inscripcion = @id
+        `)
+      ).recordset[0];
+      if (!actual)
         throw new NotFoundException(
           `La inscripción con id ${id} no fue encontrada.`,
         );
-      }
-
-      const inscripcion = inscripcionResult.recordset[0];
-
-      if (inscripcion.estado_inscripcion !== 'ACTIVA') {
+      if (actual.estado !== 'ACTIVA')
         throw new BadRequestException(
           'La inscripción ya fue finalizada o cancelada.',
         );
-      }
 
-      // ==========================================================
-      // VERIFICAR PAGOS DE MENSUALIDADES
-      //
-      // IMPORTANTE:
-      //
-      // El pago de matrícula NO impide cancelar.
-      //
-      // Solamente los pagos asociados a una MENSUALIDAD
-      // bloquean la cancelación.
-      // ==========================================================
-
-      const pagosMensualidadResult = await transaction.request().input(
-        'id_inscripcion',
-        sql.Int,
-        id,
-      ).query(`
-          SELECT
-            COUNT(*) AS cantidad_pagos
-          FROM pago p
-
-          INNER JOIN obligacion_pago o
-            ON p.id_obligacion = o.id_obligacion
-
-          WHERE o.id_inscripcion = @id_inscripcion
-            AND o.tipo_obligacion = 'MENSUALIDAD';
-        `);
-
-      const cantidadPagosMensualidad = Number(
-        pagosMensualidadResult.recordset[0].cantidad_pagos,
-      );
-
-      if (cantidadPagosMensualidad > 0) {
+      const pagos = await tx.request().input('id', sql.Int, id).query(`
+        SELECT COUNT(*) AS total FROM PAGO p
+        JOIN OBLIGACION_PAGO o ON o.id_obligacion = p.id_obligacion
+        WHERE o.id_inscripcion = @id AND o.tipo = 'MENSUALIDAD'
+      `);
+      if (pagos.recordset[0].total > 0)
         throw new BadRequestException(
           'No se puede cancelar la inscripción porque existen pagos registrados en una o más mensualidades.',
         );
-      }
 
-      // ==========================================================
-      // ANULAR MENSUALIDADES
-      //
-      // La matrícula NO se toca.
-      //
-      // Matrícula:
-      // PAGADA
-      //
-      // Mensualidades:
-      // PENDIENTE -> ANULADA
-      // ==========================================================
+      await tx.request().input('id', sql.Int, id).query(`
+        UPDATE OBLIGACION_PAGO SET estado = 'ANULADA'
+        WHERE id_inscripcion = @id AND tipo = 'MENSUALIDAD' AND estado = 'PENDIENTE';
 
-      await transaction.request().input('id_inscripcion', sql.Int, id)
-        .query(`
-        UPDATE obligacion_pago
-        SET estado = 'ANULADA'
-        WHERE id_inscripcion = @id_inscripcion
-          AND tipo_obligacion = 'MENSUALIDAD'
-          AND estado = 'PENDIENTE';
+        UPDATE INSCRIPCION SET estado = 'CANCELADA'
+        WHERE id_inscripcion = @id AND estado = 'ACTIVA';
       `);
-
-      // ==========================================================
-      // CANCELAR INSCRIPCIÓN
-      // ==========================================================
-
-      const cancelacionResult = await transaction.request().input(
-        'id_inscripcion',
-        sql.Int,
-        id,
-      ).query(`
-          UPDATE inscripcion
-          SET estado_inscripcion = 'CANCELADA'
-          OUTPUT INSERTED.*
-          WHERE id_inscripcion = @id_inscripcion
-            AND estado_inscripcion = 'ACTIVA';
-        `);
-
-      if (cancelacionResult.recordset.length === 0) {
-        throw new BadRequestException(
-          'La inscripción ya no se encuentra activa.',
-        );
-      }
-
-      // ==========================================================
-      // COMMIT
-      // ==========================================================
-
-      await transaction.commit();
-
       return {
         mensaje: 'Inscripción cancelada correctamente.',
-        inscripcion: cancelacionResult.recordset[0],
+        inscripcion: await this.getInscripcion(id, tx.request()),
       };
-    } catch (error) {
-      // ==========================================================
-      // ROLLBACK
-      // ==========================================================
-
-      if (transaction._aborted === false) {
-        await transaction.rollback();
-      }
-
-      throw error;
-    }
+    });
   }
 
-  // ============================================================
-  // HELPER: FORMATEAR FECHA
-  // ============================================================
-
-  private formatearFecha(fecha: string | Date): string {
-    if (typeof fecha === 'string') {
-      return fecha.substring(0, 10);
-    }
-
-    const year = fecha.getUTCFullYear();
-
-    const month = String(fecha.getUTCMonth() + 1).padStart(2, '0');
-
-    const day = String(fecha.getUTCDate()).padStart(2, '0');
-
-    return `${year}-${month}-${day}`;
+  private async insertarObligacion(
+    tx: sql.Transaction,
+    o: {
+      id_inscripcion: number;
+      tipo: 'MATRICULA' | 'MENSUALIDAD';
+      numero_cuota: number | null;
+      periodo: string | null;
+      fecha_vencimiento: string;
+      monto: number;
+    },
+  ) {
+    const result = await tx
+      .request()
+      .input('inscripcion', sql.Int, o.id_inscripcion)
+      .input('tipo', sql.VarChar(15), o.tipo)
+      .input('cuota', sql.TinyInt, o.numero_cuota)
+      .input('periodo', sql.Char(7), o.periodo)
+      .input('vencimiento', sql.VarChar(10), o.fecha_vencimiento)
+      .input('monto', sql.Decimal(10, 2), o.monto).query(`
+        INSERT INTO OBLIGACION_PAGO (id_inscripcion, tipo, numero_cuota, periodo, fecha_vencimiento, monto)
+        VALUES (@inscripcion, @tipo, @cuota, @periodo, CONVERT(DATE, @vencimiento, 23), @monto);
+        -- La tabla tiene trigger de bitácora: OUTPUT sin INTO no está permitido.
+        SELECT * FROM OBLIGACION_PAGO WHERE id_obligacion = SCOPE_IDENTITY();
+      `);
+    return result.recordset[0];
   }
 
-  // ============================================================
-  // HELPER: CALCULAR FECHA MENSUAL
-  //
-  // Ejemplo:
-  //
-  // inicio = 2026-08-10
-  //
-  // meses = 1 -> 2026-09-10
-  // meses = 2 -> 2026-10-10
-  // meses = 3 -> 2026-11-10
-  // ============================================================
-
-  private calcularFechaMensual(fechaInicio: string, meses: number): string {
-    const [year, month, day] = fechaInicio.split('-').map(Number);
-
-    const fecha = new Date(Date.UTC(year, month - 1, 1));
-
-    fecha.setUTCMonth(fecha.getUTCMonth() + meses);
-
-    const ultimoDiaMes = new Date(
-      Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth() + 1, 0),
+  /** Suma meses conservando el día; si no existe, usa el último día del mes. */
+  private sumarMeses(fecha: string, meses: number) {
+    const [year, month, day] = fecha.split('-').map(Number);
+    const base = new Date(Date.UTC(year, month - 1 + meses, 1));
+    const ultimo = new Date(
+      Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0),
     ).getUTCDate();
-
-    fecha.setUTCDate(Math.min(day, ultimoDiaMes));
-
-    return this.formatearFecha(fecha);
-  }
-
-  // ============================================================
-  // HELPER: GENERAR PERIODO
-  //
-  // 2026-09-10 -> SEPTIEMBRE 2026
-  // ============================================================
-
-  private generarPeriodo(fecha: string): string {
-    const [year, month] = fecha.split('-').map(Number);
-
-    const nombresMeses = [
-      'ENERO',
-      'FEBRERO',
-      'MARZO',
-      'ABRIL',
-      'MAYO',
-      'JUNIO',
-      'JULIO',
-      'AGOSTO',
-      'SEPTIEMBRE',
-      'OCTUBRE',
-      'NOVIEMBRE',
-      'DICIEMBRE',
-    ];
-
-    return `${nombresMeses[month - 1]} ${year}`;
+    base.setUTCDate(Math.min(day, ultimo));
+    return base.toISOString().slice(0, 10);
   }
 }

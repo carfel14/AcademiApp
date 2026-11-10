@@ -78,7 +78,7 @@ function ProfesorTable({
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 text-gray-700">
                           <GraduationCap className="h-4 w-4 text-blue-800" />
-                          <span>{profesor.especialidad || "Sin definir"}</span>
+                          <span>{profesor.especialidades.map((e) => e.nombre).join(", ") || "Sin definir"}</span>
                         </div>
                       </td>
 

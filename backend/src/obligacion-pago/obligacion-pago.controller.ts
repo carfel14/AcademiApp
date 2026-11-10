@@ -1,64 +1,30 @@
-import {
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Post,
-} from '@nestjs/common';
-
+import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
 import { ObligacionPagoService } from './obligacion-pago.service';
 
+/**
+ * Las obligaciones nacen al crear la inscripción; su vencimiento solo se
+ * extiende con PRORROGA. Por eso este recurso es de solo lectura.
+ */
 @Controller('obligaciones-pago')
 export class ObligacionPagoController {
-  constructor(
-    private readonly obligacionPagoService: ObligacionPagoService,
-  ) {}
-
-  // ============================================================
-  // OBTENER TODAS
-  // ============================================================
+  constructor(private readonly obligacionPagoService: ObligacionPagoService) {}
 
   @Get()
   getObligaciones() {
     return this.obligacionPagoService.getObligaciones();
   }
 
-  // ============================================================
-  // OBTENER UNA
-  // ============================================================
-
-  @Get(':id')
-  getObligacion(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
-    return this.obligacionPagoService.getObligacion(id);
-  }
-
-  // ============================================================
-  // OBTENER POR INSCRIPCIÓN
-  // ============================================================
-
   @Get('inscripcion/:idInscripcion')
   getObligacionesPorInscripcion(
-    @Param('idInscripcion', ParseIntPipe)
-    idInscripcion: number,
+    @Param('idInscripcion', ParseIntPipe) idInscripcion: number,
   ) {
     return this.obligacionPagoService.getObligacionesPorInscripcion(
       idInscripcion,
     );
   }
 
-  // ============================================================
-  // GENERAR AUTOMÁTICAMENTE
-  // ============================================================
-
-  @Post('inscripcion/:idInscripcion/generar')
-  generarObligaciones(
-    @Param('idInscripcion', ParseIntPipe)
-    idInscripcion: number,
-  ) {
-    return this.obligacionPagoService.generarObligaciones(
-      idInscripcion,
-    );
+  @Get(':id')
+  getObligacion(@Param('id', ParseIntPipe) id: number) {
+    return this.obligacionPagoService.getObligacion(id);
   }
 }

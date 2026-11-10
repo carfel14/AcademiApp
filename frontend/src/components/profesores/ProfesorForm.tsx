@@ -24,7 +24,7 @@ function ProfesorForm({ profesor, onSubmit }: ProfesorFormProps) {
       nombres: "",
       apellidos: "",
       telefono: "",
-      especialidad: "",
+      especialidades: "",
     },
   });
 
@@ -33,7 +33,7 @@ function ProfesorForm({ profesor, onSubmit }: ProfesorFormProps) {
       nombres: profesor?.nombres ?? "",
       apellidos: profesor?.apellidos ?? "",
       telefono: profesor?.telefono ?? "",
-      especialidad: profesor?.especialidad ?? "",
+      especialidades: profesor?.especialidades.map((e) => e.nombre).join(", ") ?? "",
     });
   }, [profesor, reset]);
 
@@ -121,16 +121,16 @@ function ProfesorForm({ profesor, onSubmit }: ProfesorFormProps) {
           <div>
             <label className="flex items-center gap-2 text-sm font-semibold text-gray-800">
               <GraduationCap className="h-4 w-4 text-blue-700" />
-              Especialidad
+              Especialidades
             </label>
             <input
-              {...register("especialidad")}
-              placeholder="Ej. Colorimetría / Corte"
+              {...register("especialidades")}
+              placeholder="Separadas por coma. Ej. Colorimetría, Corte"
               className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
             />
-            {errors.especialidad && (
+            {errors.especialidades && (
               <p className="mt-1.5 text-xs font-medium text-red-600">
-                {errors.especialidad.message}
+                {errors.especialidades.message}
               </p>
             )}
           </div>

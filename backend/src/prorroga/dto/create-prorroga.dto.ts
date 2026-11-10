@@ -16,10 +16,10 @@ export class CreateProrrogaDto {
   fecha_inicio!: string;
 
   @IsDateString()
-  fecha_fin!: string;
+  fecha_finalizacion!: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(5000)
-  observacion?: string;
+  @MaxLength(500)
+  observacion?: string | null;
 }

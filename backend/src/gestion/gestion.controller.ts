@@ -10,8 +10,10 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  IsBoolean,
   IsInt,
   IsNumber,
+  IsOptional,
   IsString,
   Matches,
   Max,
@@ -27,6 +29,12 @@ class RecargoDto {
 
 class AplicarDescuentoDto {
   @IsInt() @Min(1) id_descuento: number;
+  @IsOptional() @IsString() @MaxLength(500) observacion?: string;
+}
+
+class MarcarEnvioDto {
+  @IsBoolean() exito: boolean;
+  @IsOptional() @IsString() @MaxLength(500) error?: string;
 }
 
 class RecordatoriosDto {
@@ -108,6 +116,16 @@ export class GestionController {
       throw new BadRequestException('Selecciona una fecha válida.');
     }
     return this.gestion.generarRecordatorios(fecha);
+  }
+
+  @Get('recordatorios/pendientes')
+  pendientes() {
+    return this.gestion.pendientes();
+  }
+
+  @Patch('recordatorios/:id/envio')
+  marcar(@Param('id', ParseIntPipe) id: number, @Body() data: MarcarEnvioDto) {
+    return this.gestion.marcarNotificacion(id, data.exito, data.error);
   }
 
   @Patch('recordatorios/:id/cancelar')

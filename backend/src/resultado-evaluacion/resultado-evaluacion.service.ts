@@ -26,18 +26,18 @@ export class ResultadoEvaluacionService {
       .query(`
       SELECT
         r.*,
-        e.tipo_evaluacion,
+        e.tipo,
         e.id_sesion,
         i.id_estudiante,
-        est.codigo_estudiante,
+        est.codigo,
         est.nombres,
         est.apellidos
-      FROM resultado_evaluacion r
-      INNER JOIN evaluacion e
+      FROM RESULTADO_EVALUACION r
+      INNER JOIN EVALUACION e
         ON r.id_evaluacion = e.id_evaluacion
-      INNER JOIN inscripcion i
+      INNER JOIN INSCRIPCION i
         ON r.id_inscripcion = i.id_inscripcion
-      INNER JOIN estudiante est
+      INNER JOIN ESTUDIANTE est
         ON i.id_estudiante = est.id_estudiante
       WHERE @sesion IS NULL OR e.id_sesion = @sesion
       ORDER BY
@@ -59,18 +59,18 @@ export class ResultadoEvaluacionService {
     const result = await pool.request().input('id', id).query(`
         SELECT
           r.*,
-          e.tipo_evaluacion,
+          e.tipo,
           e.id_sesion,
           i.id_estudiante,
-          est.codigo_estudiante,
+          est.codigo,
           est.nombres,
           est.apellidos
-        FROM resultado_evaluacion r
-        INNER JOIN evaluacion e
+        FROM RESULTADO_EVALUACION r
+        INNER JOIN EVALUACION e
           ON r.id_evaluacion = e.id_evaluacion
-        INNER JOIN inscripcion i
+        INNER JOIN INSCRIPCION i
           ON r.id_inscripcion = i.id_inscripcion
-        INNER JOIN estudiante est
+        INNER JOIN ESTUDIANTE est
           ON i.id_estudiante = est.id_estudiante
         WHERE r.id_resultado = @id;
       `);
@@ -95,8 +95,8 @@ export class ResultadoEvaluacionService {
     return this.databaseService.transaction(async (tx) => {
       const evaluacion = (
         await tx.request().input('id', idEvaluacion).query(`
-        SELECT s.id_sesion, s.estado_sesion FROM evaluacion e
-        JOIN sesion_clase s WITH (UPDLOCK, HOLDLOCK) ON s.id_sesion = e.id_sesion
+        SELECT s.id_sesion, s.estado AS estado_sesion FROM EVALUACION e
+        JOIN SESION_CLASE s WITH (UPDLOCK, HOLDLOCK) ON s.id_sesion = e.id_sesion
         WHERE e.id_evaluacion = @id
       `)
       ).recordset[0];
@@ -109,7 +109,7 @@ export class ResultadoEvaluacionService {
       const { recordset: asistencia } = await tx
         .request()
         .input('sesion', evaluacion.id_sesion).query(`
-        SELECT id_inscripcion, estado_asistencia FROM asistencia WHERE id_sesion = @sesion
+        SELECT id_inscripcion, estado_asistencia FROM ASISTENCIA WHERE id_sesion = @sesion
       `);
       if (!asistencia.length)
         throw new BadRequestException(
@@ -131,7 +131,7 @@ export class ResultadoEvaluacionService {
         );
       }
       const previos = await tx.request().input('id', idEvaluacion).query(`
-        SELECT id_resultado FROM resultado_evaluacion WHERE id_evaluacion = @id
+        SELECT id_resultado FROM RESULTADO_EVALUACION WHERE id_evaluacion = @id
       `);
       if (previos.recordset.length)
         throw new BadRequestException(
@@ -147,24 +147,25 @@ export class ResultadoEvaluacionService {
           .input('nota', sql.Decimal(5, 2), nota)
           .input('estado', nota === null ? 'NO_SE_PRESENTO' : 'CALIFICADO')
           .query(`
-            INSERT INTO resultado_evaluacion (id_evaluacion, id_inscripcion, nota, estado_resultado)
-            OUTPUT INSERTED.* VALUES (@id, @inscripcion, @nota, @estado)
+            INSERT INTO RESULTADO_EVALUACION (id_evaluacion, id_inscripcion, nota, estado_resultado)
+            VALUES (@id, @inscripcion, @nota, @estado);
+            SELECT * FROM RESULTADO_EVALUACION WHERE id_resultado = SCOPE_IDENTITY();
           `);
         resultados.push(recordset[0]);
       }
       const cierre = await tx.request().input('sesion', evaluacion.id_sesion)
         .query(`
-        UPDATE s SET estado_sesion = 'REALIZADA'
-        FROM sesion_clase s WHERE s.id_sesion = @sesion AND s.estado_sesion = 'PROGRAMADA'
+        UPDATE s SET estado = 'REALIZADA'
+        FROM SESION_CLASE s WHERE s.id_sesion = @sesion AND s.estado = 'PROGRAMADA'
           AND NOT EXISTS (
-            SELECT 1 FROM inscripcion i WHERE i.id_grupo = s.id_grupo AND i.estado_inscripcion = 'ACTIVA'
+            SELECT 1 FROM INSCRIPCION i WHERE i.id_grupo = s.id_grupo AND i.estado = 'ACTIVA'
               AND i.fecha_inscripcion <= s.fecha_programada
-              AND NOT EXISTS (SELECT 1 FROM asistencia a WHERE a.id_sesion = @sesion AND a.id_inscripcion = i.id_inscripcion)
+              AND NOT EXISTS (SELECT 1 FROM ASISTENCIA a WHERE a.id_sesion = @sesion AND a.id_inscripcion = i.id_inscripcion)
           )
           AND NOT EXISTS (
-            SELECT 1 FROM evaluacion e CROSS JOIN asistencia a
+            SELECT 1 FROM EVALUACION e CROSS JOIN ASISTENCIA a
             WHERE e.id_sesion = @sesion AND a.id_sesion = @sesion AND NOT EXISTS (
-              SELECT 1 FROM resultado_evaluacion r WHERE r.id_evaluacion = e.id_evaluacion AND r.id_inscripcion = a.id_inscripcion
+              SELECT 1 FROM RESULTADO_EVALUACION r WHERE r.id_evaluacion = e.id_evaluacion AND r.id_inscripcion = a.id_inscripcion
             )
           )
       `);
@@ -194,11 +195,11 @@ export class ResultadoEvaluacionService {
           r.estado_resultado,
           e.id_sesion,
           s.id_grupo,
-          s.estado_sesion
-        FROM resultado_evaluacion r
-        INNER JOIN evaluacion e
+          s.estado AS estado_sesion
+        FROM RESULTADO_EVALUACION r
+        INNER JOIN EVALUACION e
           ON r.id_evaluacion = e.id_evaluacion
-        INNER JOIN sesion_clase s
+        INNER JOIN SESION_CLASE s
           ON e.id_sesion = s.id_sesion
         WHERE r.id_resultado = @id;
       `);
@@ -230,8 +231,8 @@ export class ResultadoEvaluacionService {
       .input('id_inscripcion', actual.id_inscripcion).query(`
         SELECT
           id_inscripcion,
-          estado_inscripcion
-        FROM inscripcion
+          estado
+        FROM INSCRIPCION
         WHERE id_inscripcion = @id_inscripcion;
       `);
 
@@ -241,7 +242,7 @@ export class ResultadoEvaluacionService {
       );
     }
 
-    if (inscripcion.recordset[0].estado_inscripcion === 'CANCELADA') {
+    if (inscripcion.recordset[0].estado === 'CANCELADA') {
       throw new BadRequestException(
         'No se puede modificar un resultado de una inscripción cancelada.',
       );
@@ -258,7 +259,7 @@ export class ResultadoEvaluacionService {
         SELECT
           id_asistencia,
           estado_asistencia
-        FROM asistencia
+        FROM ASISTENCIA
         WHERE id_inscripcion = @id_inscripcion
           AND id_sesion = @id_sesion;
       `);
@@ -294,7 +295,7 @@ export class ResultadoEvaluacionService {
       }
     } else if (
       estadoAsistencia === 'AUSENTE' ||
-      estadoAsistencia === 'JUSTIFICADO' ||
+      estadoAsistencia === 'JUSTIFICADA' ||
       estadoAsistencia === 'SUSPENDIDO_POR_MORA'
     ) {
       estadoResultado = 'NO_SE_PRESENTO';
@@ -310,9 +311,9 @@ export class ResultadoEvaluacionService {
     const result = await pool
       .request()
       .input('id', id)
-      .input('nota', nota)
+      .input('nota', sql.Decimal(5, 2), nota)
       .input('estado_resultado', estadoResultado).query(`
-        UPDATE resultado_evaluacion
+        UPDATE RESULTADO_EVALUACION
         SET
           nota = @nota,
           estado_resultado = @estado_resultado
@@ -320,18 +321,18 @@ export class ResultadoEvaluacionService {
 
         SELECT
           r.*,
-          e.tipo_evaluacion,
+          e.tipo,
           e.id_sesion,
           i.id_estudiante,
-          est.codigo_estudiante,
+          est.codigo,
           est.nombres,
           est.apellidos
-        FROM resultado_evaluacion r
-        INNER JOIN evaluacion e
+        FROM RESULTADO_EVALUACION r
+        INNER JOIN EVALUACION e
           ON r.id_evaluacion = e.id_evaluacion
-        INNER JOIN inscripcion i
+        INNER JOIN INSCRIPCION i
           ON r.id_inscripcion = i.id_inscripcion
-        INNER JOIN estudiante est
+        INNER JOIN ESTUDIANTE est
           ON i.id_estudiante = est.id_estudiante
         WHERE r.id_resultado = @id;
       `);

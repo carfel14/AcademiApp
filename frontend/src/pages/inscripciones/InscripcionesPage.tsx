@@ -88,7 +88,7 @@ function InscripcionesPage() {
       setInscripciones((prev) =>
         prev.map((i) =>
           i.id_inscripcion === id_inscripcion
-            ? { ...i, estado_inscripcion: "CANCELADA" }
+            ? { ...i, estado: "CANCELADA" as const }
             : i
         )
       );
@@ -100,9 +100,9 @@ function InscripcionesPage() {
 
   const inscripcionesFiltradas = inscripciones.filter((item) => {
     const termino = busqueda.trim().toLowerCase();
-    const estudiante = `${item.nombre_estudiante || ""} ${item.apellido_estudiante || ""}`.toLowerCase();
-    const grupo = (item.nombre_grupo || "").toLowerCase();
-    const cursoNombre = (item.nombre_curso || "").toLowerCase();
+    const estudiante = `${item.nombres || ""} ${item.apellidos || ""}`.toLowerCase();
+    const grupo = (item.grupo || "").toLowerCase();
+    const cursoNombre = (item.curso || "").toLowerCase();
 
     // Filtro de texto (nombre, grupo o curso)
     const coincideTexto =
@@ -110,7 +110,7 @@ function InscripcionesPage() {
 
     // Filtro de Estado
     const coincideEstado =
-      estadoFiltro === "todos" || item.estado_inscripcion.toLowerCase() === estadoFiltro;
+      estadoFiltro === "todos" || item.estado.toLowerCase() === estadoFiltro;
 
     // Filtro de Curso
     let coincideCurso = true;
@@ -178,7 +178,7 @@ function InscripcionesPage() {
             <option value="todos">Todos los cursos</option>
             {cursos.map((c) => (
               <option key={c.id_curso} value={c.id_curso}>
-                {c.nombre_curso}
+                {c.nombre}
               </option>
             ))}
           </select>

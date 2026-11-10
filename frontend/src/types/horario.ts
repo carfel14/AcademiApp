@@ -3,5 +3,5 @@ export interface Horario {
   id_grupo: number;
   dia_semana: string;
   hora_inicio: string;
-  hora_fin: string;
+  hora_finalizacion: string;
 }

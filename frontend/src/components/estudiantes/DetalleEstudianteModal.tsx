@@ -145,7 +145,7 @@ function DetalleEstudianteModal({
             <option value="todas">Todos los cursos y grupos ({misInscripciones.length})</option>
             {misInscripciones.map((ins) => (
               <option key={ins.id_inscripcion} value={ins.id_inscripcion}>
-                {ins.nombre_curso} — {ins.nombre_grupo} ({ins.estado_inscripcion})
+                {ins.curso} — {ins.grupo} ({ins.estado})
               </option>
             ))}
           </select>
@@ -250,21 +250,21 @@ function DetalleEstudianteModal({
                         <div className="flex items-center gap-2 flex-wrap">
                           <Layers className="h-4 w-4 text-blue-800 shrink-0" />
                           <span className="font-semibold text-sm text-gray-900 truncate">
-                            {ins.nombre_curso}
+                            {ins.curso}
                           </span>
                           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700 font-medium">
-                            {ins.nombre_grupo}
+                            {ins.grupo}
                           </span>
                           <span
                             className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                              ins.estado_inscripcion === "ACTIVA"
+                              ins.estado === "ACTIVA"
                                 ? "bg-emerald-100 text-emerald-800"
-                                : ins.estado_inscripcion === "FINALIZADA"
+                                : ins.estado === "FINALIZADA"
                                 ? "bg-blue-100 text-blue-800"
                                 : "bg-rose-100 text-rose-800"
                             }`}
                           >
-                            {ins.estado_inscripcion}
+                            {ins.estado}
                           </span>
                         </div>
                         <p className="text-xs text-gray-500">
@@ -273,7 +273,7 @@ function DetalleEstudianteModal({
                         </p>
                       </div>
 
-                      {ins.estado_inscripcion === "ACTIVA" && (
+                      {ins.estado === "ACTIVA" && (
                         <button
                           type="button"
                           onClick={() => onCancelarInscripcion(ins.id_inscripcion)}
@@ -318,7 +318,7 @@ function DetalleEstudianteModal({
                           className={`rounded px-2 py-0.5 font-semibold text-[11px] ${
                             a.estado_asistencia === "PRESENTE"
                               ? "bg-emerald-100 text-emerald-800"
-                              : a.estado_asistencia === "JUSTIFICADO"
+                              : a.estado_asistencia === "JUSTIFICADA"
                               ? "bg-amber-100 text-amber-800"
                               : "bg-rose-100 text-rose-800"
                           }`}
@@ -345,7 +345,7 @@ function DetalleEstudianteModal({
                     >
                       <div>
                         <p className="text-xs font-semibold text-gray-900">
-                          {ev.tipo_evaluacion || `Evaluación #${ev.id_evaluacion}`}
+                          {ev.tipo || `Evaluación #${ev.id_evaluacion}`}
                         </p>
                         <span className="text-[11px] text-gray-500">
                           Estado: {ev.estado_resultado}
@@ -379,7 +379,7 @@ function DetalleEstudianteModal({
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="text-xs font-semibold text-gray-900">
-                            {o.tipo_obligacion === "MATRICULA"
+                            {o.tipo === "MATRICULA"
                               ? "Matrícula"
                               : `Cuota #${o.numero_cuota} - ${o.periodo}`}
                           </p>
@@ -396,7 +396,7 @@ function DetalleEstudianteModal({
                           </span>
                         </div>
                         <p className="text-[11px] text-gray-500 mt-0.5">
-                          Vence: {String(o.fecha_vencimiento).substring(0, 10)} • Pagado: C$ {o.total_pagado} • Saldo: C$ {o.saldo_pendiente}
+                          Vence: {String(o.fecha_vencimiento).substring(0, 10)} • Pagado: C$ {o.pagado} • Saldo: C$ {o.saldo_neto}{o.dias_mora > 0 ? ` • ${o.dias_mora} días de mora` : ""}
                         </p>
                       </div>
 
@@ -420,10 +420,10 @@ function DetalleEstudianteModal({
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-gray-900">
-                          Prórroga para Obligación #{pr.id_obligacion} ({pr.tipo_obligacion ?? "Cuota"})
+                          Prórroga para Obligación #{pr.id_obligacion} ({pr.tipo ?? "Cuota"})
                         </span>
                         <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] text-blue-900 font-semibold">
-                          {String(pr.fecha_inicio).substring(0, 10)} al {String(pr.fecha_fin).substring(0, 10)}
+                          {String(pr.fecha_inicio).substring(0, 10)} al {String(pr.fecha_finalizacion).substring(0, 10)}
                         </span>
                       </div>
                       {pr.observacion && (
@@ -450,7 +450,7 @@ function DetalleEstudianteModal({
                         <div className="flex items-center gap-2">
                           <FileBadge className="h-4 w-4 text-blue-800" />
                           <span className="font-mono text-xs font-bold text-gray-900">
-                            {cert.codigo_certificado}
+                            {cert.codigo}
                           </span>
                           <span
                             className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
@@ -463,7 +463,7 @@ function DetalleEstudianteModal({
                           </span>
                         </div>
                         <p className="text-xs text-gray-500 mt-1">
-                          Curso: <strong className="text-gray-700">{cert.nombre_curso}</strong> • Emisión:{" "}
+                          Curso: <strong className="text-gray-700">{cert.curso}</strong> • Emisión:{" "}
                           {String(cert.fecha_emision).substring(0, 10)}
                         </p>
                       </div>

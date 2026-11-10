@@ -1,25 +1,14 @@
-import {
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class AsistenciaRegistroDto {
   @IsInt()
   id_inscripcion!: number;
 
-  @IsIn([
-    'PRESENTE',
-    'AUSENTE',
-    'JUSTIFICADO',
-    'SUSPENDIDO_POR_MORA',
-  ])
+  @IsIn(['PRESENTE', 'AUSENTE', 'JUSTIFICADA', 'SUSPENDIDO_POR_MORA'])
   estado_asistencia!: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(5000)
+  @MaxLength(500)
   observacion?: string;
 }

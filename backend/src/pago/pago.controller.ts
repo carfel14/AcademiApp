@@ -12,9 +12,7 @@ import { CreatePagoDto } from './dto/create-pago.dto';
 
 @Controller('pagos')
 export class PagoController {
-  constructor(
-    private readonly pagoService: PagoService,
-  ) {}
+  constructor(private readonly pagoService: PagoService) {}
 
   // ============================================================
   // OBTENER TODOS LOS PAGOS
@@ -30,9 +28,7 @@ export class PagoController {
   // ============================================================
 
   @Get(':id')
-  getPago(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  getPago(@Param('id', ParseIntPipe) id: number) {
     return this.pagoService.getPago(id);
   }
 
@@ -42,15 +38,10 @@ export class PagoController {
 
   @Get('obligacion/:idObligacion')
   getPagosPorObligacion(
-    @Param(
-      'idObligacion',
-      ParseIntPipe,
-    )
+    @Param('idObligacion', ParseIntPipe)
     idObligacion: number,
   ) {
-    return this.pagoService.getPagosPorObligacion(
-      idObligacion,
-    );
+    return this.pagoService.getPagosPorObligacion(idObligacion);
   }
 
   // ============================================================
@@ -58,9 +49,7 @@ export class PagoController {
   // ============================================================
 
   @Post()
-  createPago(
-    @Body() pago: CreatePagoDto,
-  ) {
+  createPago(@Body() pago: CreatePagoDto) {
     return this.pagoService.createPago(pago);
   }
 }

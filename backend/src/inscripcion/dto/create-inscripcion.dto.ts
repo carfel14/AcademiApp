@@ -1,17 +1,16 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateInscripcionDto {
-    @IsNotEmpty()
-    @IsNumber()
-    @Min(1)
-    id_estudiante!: number;
+  @IsInt()
+  @Min(1)
+  id_estudiante!: number;
 
-    @IsNotEmpty()
-    @IsNumber()
-    @Min(1)
-    id_grupo!: number;
+  @IsInt()
+  @Min(1)
+  id_grupo!: number;
 
-    @IsOptional()
-    @IsString()
-    observacion?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  observacion?: string;
 }
