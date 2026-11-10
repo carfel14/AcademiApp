@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { useToast } from "../../context/ToastContext";
 
@@ -51,13 +51,9 @@ function CursosPage() {
   const [grupoSeleccionado, setGrupoSeleccionado] =
     useState<Grupo | undefined>();
 
-  useEffect(() => {
-    cargarCursos();
-  }, []);
-
-  async function cargarCursos() {
+  const cargarCursos = useCallback(async (refresh = true) => {
     try {
-      setLoading(true);
+      if (refresh) setLoading(true);
       const [cursosData, gruposData] = await Promise.all([
         obtenerCursos(),
         obtenerGrupos(),
@@ -70,7 +66,13 @@ function CursosPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void cargarCursos(false); });
+    return () => { active = false; };
+  }, [cargarCursos]);
 
   function abrirModalCrear() {
     setCursoSeleccionado(undefined);

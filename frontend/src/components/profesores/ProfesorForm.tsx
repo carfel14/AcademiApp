@@ -19,7 +19,7 @@ function ProfesorForm({ profesor, onSubmit }: ProfesorFormProps) {
     formState: { errors, isSubmitting },
     reset,
   } = useForm<ProfesorFormData>({
-    resolver: zodResolver(profesorSchema) as any,
+    resolver: zodResolver(profesorSchema),
     defaultValues: {
       nombres: "",
       apellidos: "",

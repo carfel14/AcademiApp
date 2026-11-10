@@ -1,16 +1,11 @@
 import { useState, useMemo } from "react";
 import {
   Search,
-  User,
-  BookOpen,
   Layers,
   CheckCircle2,
-  Calendar,
-  DollarSign,
   ArrowRight,
   ArrowLeft,
   X,
-  Sparkles,
 } from "lucide-react";
 import type { Estudiante } from "../../types/estudiante";
 import type { Curso } from "../../types/curso";

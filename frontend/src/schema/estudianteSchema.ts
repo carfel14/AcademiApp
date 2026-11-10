@@ -16,6 +16,7 @@ export const estudianteSchema = z.object({
     .string()
     .optional()
     .or(z.literal("")),
+  email: z.email("Ingresa un correo válido").max(150).optional().or(z.literal("")),
   telefono: z
     .string()
     .trim()

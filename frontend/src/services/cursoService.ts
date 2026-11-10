@@ -1,7 +1,8 @@
+import { apiFetch } from "./api";
 import type { Curso } from "../types/curso";
 import type { CursoFormData } from "../schema/cursoSchema";
 
-const API_URL = "http://localhost:3000/cursos";
+const API_URL = "/cursos";
 
 function normalizarCurso(
   curso: Partial<Curso> & {
@@ -31,7 +32,7 @@ function mapearPayload(curso: CursoFormData) {
 }
 
 export async function obtenerCursos(): Promise<Curso[]> {
-  const response = await fetch(API_URL);
+  const response = await apiFetch(API_URL);
 
   if (!response.ok) {
     throw new Error("No se pudieron obtener los cursos");
@@ -44,7 +45,7 @@ export async function obtenerCursos(): Promise<Curso[]> {
 export async function crearCurso(
   curso: CursoFormData
 ): Promise<Curso> {
-  const response = await fetch(API_URL, {
+  const response = await apiFetch(API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -64,7 +65,7 @@ export async function actualizarCurso(
   id: number,
   curso: CursoFormData
 ): Promise<Curso> {
-  const response = await fetch(`${API_URL}/${id}`, {
+  const response = await apiFetch(`${API_URL}/${id}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -81,7 +82,7 @@ export async function actualizarCurso(
 }
 
 export async function eliminarCurso(id: number): Promise<void> {
-  const response = await fetch(`${API_URL}/${id}`, {
+  const response = await apiFetch(`${API_URL}/${id}`, {
     method: "DELETE",
   });
 

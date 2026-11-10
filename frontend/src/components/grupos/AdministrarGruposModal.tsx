@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 
 import type { Grupo } from "../../types/grupo";
@@ -96,7 +97,7 @@ function AdministrarGruposModal({
         const actualizado = await actualizarHorario(horarioSeleccionado.id_horario, data);
         setHorarios((actuales) => ({
           ...actuales,
-          [grupoParaHorario.id_grupo]: actuales[grupoParaHorario.id_grupo].map((horario) =>
+          [grupoParaHorario.id_grupo]: (actuales[grupoParaHorario.id_grupo] ?? []).map((horario) =>
             horario.id_horario === actualizado.id_horario ? actualizado : horario
           ),
         }));
@@ -126,8 +127,8 @@ function AdministrarGruposModal({
         ),
       }));
       setHorarioAEliminar(undefined);
-    } catch {
-      setError("No se pudo eliminar el horario.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "No se pudo eliminar el horario.");
     }
   }
 
@@ -199,7 +200,8 @@ function AdministrarGruposModal({
                     </span>
                   </div>
                 ))}
-                {(horarios[grupo.id_grupo] ?? []).length === 0 && <p className="text-sm text-gray-400">No hay horarios registrados.</p>}
+                {(horarios[grupo.id_grupo] ?? []).length === 0 && <p className="text-sm text-gray-600">No hay horarios registrados.</p>}
+                <Link className="work-link" to={`/calendario?grupo=${grupo.id_grupo}`}>Abrir calendario</Link>
               </div>
             </div>
 

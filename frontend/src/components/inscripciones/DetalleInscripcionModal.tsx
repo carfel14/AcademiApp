@@ -1,12 +1,15 @@
-import { User, BookOpen, Layers, Calendar, FileText, CheckCircle2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { EditForm } from "../../pages/gestion/ui";
+import { User, BookOpen, Layers, Calendar, FileText } from "lucide-react";
 import type { Inscripcion } from "../../types/inscripcion";
 
 interface DetalleInscripcionModalProps {
   inscripcion: Inscripcion;
   onClose: () => void;
+  onSave: (observacion: string | null) => Promise<void>;
 }
 
-function DetalleInscripcionModal({ inscripcion, onClose }: DetalleInscripcionModalProps) {
+function DetalleInscripcionModal({ inscripcion, onClose, onSave }: DetalleInscripcionModalProps) {
   return (
     <div className="space-y-5">
       <div className="rounded-xl bg-slate-50 p-4 border border-gray-200 space-y-3">
@@ -86,6 +89,13 @@ function DetalleInscripcionModal({ inscripcion, onClose }: DetalleInscripcionMod
           Cerrar
         </button>
       </div>
+      {inscripcion.estado_inscripcion === "ACTIVA" && <EditForm
+        key={inscripcion.id_inscripcion}
+        fields={[{ name: "observacion", label: "Editar observación", type: "textarea", required: false }]}
+        initial={{ observacion: inscripcion.observacion ?? null }}
+        onSave={data => onSave(data.observacion === null ? null : String(data.observacion))}
+      />}
+      <Link className="work-link" to={`/cobros?inscripcion=${inscripcion.id_inscripcion}`}>Ver obligaciones de pago</Link>
     </div>
   );
 }

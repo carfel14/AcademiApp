@@ -1,3 +1,4 @@
+import { apiFetch } from "./api";
 import type { Grupo } from "../types/grupo";
 
 type ActualizarGrupoData = {
@@ -6,7 +7,7 @@ type ActualizarGrupoData = {
   fecha_inicio?: string;
 };
 
-const API_URL = "http://localhost:3000/grupos";
+const API_URL = "/grupos";
 
 async function leerMensajeDeError(response: Response): Promise<string> {
   try {
@@ -18,7 +19,7 @@ async function leerMensajeDeError(response: Response): Promise<string> {
 }
 
 export async function obtenerGrupos(): Promise<Grupo[]> {
-  const response = await fetch(API_URL);
+  const response = await apiFetch(API_URL);
 
   if (!response.ok) {
     throw new Error("No se pudieron obtener los grupos");
@@ -30,7 +31,7 @@ export async function obtenerGrupos(): Promise<Grupo[]> {
 export async function crearGrupo(
   grupo: Omit<Grupo, "id_grupo" | "estado">
 ): Promise<Grupo> {
-  const response = await fetch(API_URL, {
+  const response = await apiFetch(API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -47,7 +48,7 @@ export async function crearGrupo(
 }
 
 export async function eliminarGrupo(id: number): Promise<void> {
-  const response = await fetch(`${API_URL}/${id}`, {
+  const response = await apiFetch(`${API_URL}/${id}`, {
     method: "DELETE",
   });
 
@@ -60,7 +61,7 @@ export async function actualizarGrupo(
   id: number,
   grupo: ActualizarGrupoData
 ): Promise<Grupo> {
-  const response = await fetch(`${API_URL}/${id}`, {
+  const response = await apiFetch(`${API_URL}/${id}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -77,7 +78,7 @@ export async function actualizarGrupo(
 }
 
 export async function finalizarGrupo(id: number): Promise<void> {
-  const response = await fetch(`${API_URL}/${id}/finalizar`, {
+  const response = await apiFetch(`${API_URL}/${id}/finalizar`, {
     method: "PATCH",
   });
 

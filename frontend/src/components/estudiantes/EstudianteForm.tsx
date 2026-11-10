@@ -17,12 +17,13 @@ function EstudianteForm({ estudiante, onSubmit }: EstudianteFormProps) {
     formState: { errors, isSubmitting },
     reset,
   } = useForm<EstudianteFormData>({
-    resolver: zodResolver(estudianteSchema) as any,
+    resolver: zodResolver(estudianteSchema),
     defaultValues: {
       nombres: "",
       apellidos: "",
       fecha_nacimiento: "",
       telefono: "",
+      email: "",
     },
   });
 
@@ -32,6 +33,7 @@ function EstudianteForm({ estudiante, onSubmit }: EstudianteFormProps) {
       apellidos: estudiante?.apellidos ?? "",
       fecha_nacimiento: estudiante?.fecha_nacimiento ?? "",
       telefono: estudiante?.telefono ?? "",
+      email: estudiante?.email ?? "",
     });
   }, [estudiante, reset]);
 
@@ -117,6 +119,12 @@ function EstudianteForm({ estudiante, onSubmit }: EstudianteFormProps) {
             )}
           </div>
         </div>
+        <label className="grid gap-2 text-sm font-semibold text-gray-800">
+          Correo electrónico
+          <input type="email" {...register("email")} maxLength={150}
+            className="w-full rounded-md border border-gray-300 px-3 py-2.5 font-normal" />
+          {errors.email && <span className="text-xs text-red-600">{errors.email.message}</span>}
+        </label>
       </div>
 
       <div className="flex items-center justify-end border-t border-gray-100 bg-gray-50 px-6 py-4">

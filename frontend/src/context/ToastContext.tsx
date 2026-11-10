@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 import ToastContainer from "../components/ui/ToastContainer";
 
 export type ToastType = "success" | "error" | "info" | "warning";
@@ -46,12 +46,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     [removeToast]
   );
 
-  const toast = {
+  const toast = useMemo<ToastContextType["toast"]>(() => ({
     success: (msg: string, dur?: number) => showToast(msg, "success", dur),
     error: (msg: string, dur?: number) => showToast(msg, "error", dur),
     info: (msg: string, dur?: number) => showToast(msg, "info", dur),
     warning: (msg: string, dur?: number) => showToast(msg, "warning", dur),
-  };
+  }), [showToast]);
 
   return (
     <ToastContext.Provider value={{ showToast, toast, removeToast }}>
@@ -61,6 +61,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useToast() {
   const context = useContext(ToastContext);
   if (!context) {

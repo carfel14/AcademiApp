@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const precioSchema = z.coerce
+const precioSchema = z
   .number()
   .refine((val) => val > 0, {
     message: "El valor debe ser mayor a 0",

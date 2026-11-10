@@ -1,11 +1,12 @@
+import { apiFetch } from "./api";
 // src/services/asignacionProfesorService.ts
 import type { AsignacionProfesor } from "../types/asignacionProfesor";
 import type { AsignacionProfesorFormData } from "../schema/asignacionProfesorSchema";
 
-const API_URL = "http://localhost:3000/asignaciones-profesor";
+const API_URL = "/asignaciones-profesor";
 
 export async function obtenerAsignaciones(): Promise<AsignacionProfesor[]> {
-  const response = await fetch(API_URL);
+  const response = await apiFetch(API_URL);
 
   if (!response.ok) {
     throw new Error("No se pudieron obtener las asignaciones");
@@ -17,7 +18,7 @@ export async function obtenerAsignaciones(): Promise<AsignacionProfesor[]> {
 export async function crearAsignacion(
   data: AsignacionProfesorFormData
 ): Promise<AsignacionProfesor> {
-  const response = await fetch(API_URL, {
+  const response = await apiFetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -32,7 +33,7 @@ export async function crearAsignacion(
 }
 
 export async function eliminarAsignacion(id: number): Promise<void> {
-  const response = await fetch(`${API_URL}/${id}`, {
+  const response = await apiFetch(`${API_URL}/${id}`, {
     method: "DELETE",
   });
 

@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { useToast } from "../../context/ToastContext";
 
 import {
   obtenerInscripciones,
+  actualizarInscripcion,
   crearInscripcion,
   cancelarInscripcion,
 } from "../../services/inscripcionService";
@@ -38,13 +39,9 @@ function InscripcionesPage() {
   const [modalWizardAbierto, setModalWizardAbierto] = useState(false);
   const [inscripcionParaDetalle, setInscripcionParaDetalle] = useState<Inscripcion | null>(null);
 
-  useEffect(() => {
-    cargarDatos();
-  }, []);
-
-  async function cargarDatos() {
+  const cargarDatos = useCallback(async (refresh = true) => {
     try {
-      setLoading(true);
+      if (refresh) setLoading(true);
       const [inscripcionesData, estudiantesData, cursosData, gruposData] = await Promise.all([
         obtenerInscripciones(),
         obtenerEstudiantes(),
@@ -61,7 +58,13 @@ function InscripcionesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [toast]);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void cargarDatos(false); });
+    return () => { active = false; };
+  }, [cargarDatos]);
 
   async function handleCrearInscripcion(data: {
     id_estudiante: number;
@@ -231,6 +234,12 @@ function InscripcionesPage() {
         {inscripcionParaDetalle && (
           <DetalleInscripcionModal
             inscripcion={inscripcionParaDetalle}
+            onSave={async observacion => {
+              const actualizada = await actualizarInscripcion(inscripcionParaDetalle.id_inscripcion, observacion);
+              setInscripciones(prev => prev.map(i => i.id_inscripcion === actualizada.id_inscripcion ? actualizada : i));
+              setInscripcionParaDetalle(actualizada);
+              toast.success("Inscripción actualizada.");
+            }}
             onClose={() => setInscripcionParaDetalle(null)}
           />
         )}
