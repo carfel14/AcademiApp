@@ -1,68 +1,8 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { execFile } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import * as sql from 'mssql';
-
-const logger = new Logger('DatabaseService');
-
-/** Último canal np: que la instancia de LocalDB registró en su error.log. */
-async function leerPipe(instancia: string) {
-  const ruta = join(
-    process.env.LOCALAPPDATA ?? '',
-    'Microsoft',
-    'Microsoft SQL Server Local DB',
-    'Instances',
-    instancia,
-    'error.log',
-  );
-  const buffer = await readFile(ruta).catch(() => undefined);
-  if (!buffer) return { pipe: undefined, ruta };
-  const texto =
-    buffer[0] === 0xff && buffer[1] === 0xfe
-      ? buffer.toString('utf16le')
-      : buffer.toString('utf8');
-  const pipes = [...texto.matchAll(/\\\\\.\\pipe\\LOCALDB#[0-9A-F]+\\tsql\\query/gi)];
-  return { pipe: pipes.at(-1)?.[0], ruta };
-}
-
-function pipeAccesible(pipe: string) {
-  // En Windows, un named pipe activo se puede comprobar como archivo.
-  return access(pipe).then(
-    () => true,
-    () => false,
-  );
-}
-
-/**
- * LocalDB cambia de canal en cada inicio y `SqlLocalDB info` no siempre lo
- * informa. Se inicia la instancia si hace falta y se lee el canal de su log.
- */
-async function pipeLocalDb(instancia: string): Promise<string> {
-  let { pipe, ruta } = await leerPipe(instancia);
-  if (pipe && (await pipeAccesible(pipe))) return `np:${pipe}`;
-
-  logger.log(`Iniciando la instancia de LocalDB ${instancia}...`);
-  await promisify(execFile)('sqllocaldb', ['start', instancia]).catch(
-    () => undefined,
-  );
-  for (let intento = 0; intento < 30; intento++) {
-    ({ pipe, ruta } = await leerPipe(instancia));
-    if (pipe && (await pipeAccesible(pipe))) return `np:${pipe}`;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(
-    `No se encontró el canal de LocalDB "${instancia}". Revisa ${ruta} o define DB_LOCALDB_PIPE.`,
-  );
-}
+import { abrirPool, type ConfigConexion } from './conexion';
 
 /**
  * Usuario de la petición en curso. Los triggers de bitácora del script leen
@@ -79,33 +19,20 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly configService: ConfigService) {}
 
   async onModuleInit() {
-    const database =
-      this.configService.get<string>('DB_DATABASE') ?? 'AcademiaBellezaSilvia';
-    const instancia = this.configService.get<string>('DB_LOCALDB_INSTANCE');
-    const localDb =
-      this.configService.get<string>('DB_LOCALDB_PIPE') ||
-      (instancia ? await pipeLocalDb(instancia) : undefined);
-    if (localDb) {
-      // Carga opcional. Las conexiones TCP siguen usando el controlador habitual.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const driver = require('mssql/msnodesqlv8') as typeof sql;
-      this.pool = await new driver.ConnectionPool({
-        connectionString: `Driver={ODBC Driver 17 for SQL Server};Server=${localDb};Database=${database};Trusted_Connection=yes;`,
-        server: localDb,
-      }).connect();
-    } else {
-      this.pool = await new sql.ConnectionPool({
-        server: this.configService.get<string>('DB_SERVER') ?? 'localhost',
-        database,
-        user: this.configService.get<string>('DB_USER'),
-        password: this.configService.get<string>('DB_PASSWORD'),
-        port: Number(this.configService.get<string>('DB_PORT') ?? 1433),
-        options: {
-          encrypt: false,
-          trustServerCertificate: true,
-        },
-      }).connect();
-    }
+    const claves: (keyof ConfigConexion)[] = [
+      'DB_DATABASE',
+      'DB_LOCALDB_INSTANCE',
+      'DB_LOCALDB_PIPE',
+      'DB_SERVER',
+      'DB_PORT',
+      'DB_USER',
+      'DB_PASSWORD',
+    ];
+    this.pool = await abrirPool(
+      Object.fromEntries(
+        claves.map((clave) => [clave, this.configService.get<string>(clave)]),
+      ),
+    );
 
     const request = this.pool.request.bind(this.pool);
     this.pool.request = () => this.preparar(request());
