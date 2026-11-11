@@ -3,7 +3,9 @@ import type { Grupo } from "../types/grupo";
 
 const API_URL = "/grupos";
 
-export const obtenerGrupos = () => api<Grupo[]>(API_URL);
+/** Sin estado: en curso y finalizados. "TODOS" incluye también los cancelados. */
+export const obtenerGrupos = (estado?: "EN_CURSO" | "FINALIZADO" | "CANCELADO" | "TODOS") =>
+  api<Grupo[]>(estado ? `${API_URL}?estado=${estado}` : API_URL);
 
 export const crearGrupo = (grupo: {
   id_plan: number;

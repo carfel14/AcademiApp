@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import MainLayout from "../components/layout/MainLayout";
 import CursosPage from "../pages/cursos/CursosPage";
+import GruposPage from "../pages/grupos/GruposPage";
 import ProfesoresPage from "../pages/profesores/ProfesoresPage";
 import EstudiantesPage from "../pages/estudiantes/EstudiantesPage";
 import InscripcionesPage from "../pages/inscripciones/InscripcionesPage";
@@ -54,6 +55,7 @@ export default function AppRouter() {
       try { await api("/auth/logout", "POST"); } finally { setToken(); }
     }} />}>
       {admin && <Route path="/cursos" element={<CursosPage />} />}
+      {(admin || docente || recepcion) && <Route path="/grupos" element={<GruposPage editable={admin} verCalendario={admin || docente} verInscripciones={admin || recepcion} />} />}
       {admin && <Route path="/profesores" element={<ProfesoresPage />} />}
       {(admin || recepcion) && <Route path="/estudiantes" element={<EstudiantesPage />} />}
       {(admin || recepcion) && <Route path="/inscripciones" element={<InscripcionesPage />} />}

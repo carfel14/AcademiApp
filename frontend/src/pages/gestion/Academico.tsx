@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import HorarioForm from "../../components/grupos/HorarioForm";
 import Modal from "../../components/ui/Modal";
 import { api } from "../../services/api";
-import { actualizarHorario, crearHorario, eliminarHorario } from "../../services/horarioService";
+import { actualizarHorario, crearHorario, eliminarHorario, resumenCambio, resumenEliminacion } from "../../services/horarioService";
 import type { Grupo } from "../../types/grupo";
 import type { Horario } from "../../types/horario";
 import type { AsistenciaItem } from "../../types/asistencia";
@@ -96,7 +96,7 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
           ...(admin && activo ? [{ label: "Acciones", cell: (row: Horario) => <div className="work-inline"><button className="work-link" onClick={() => setHorario(row)}>Editar</button>
             <button className="work-link" onClick={() => { setError(""); setBorrar(row); }}>Eliminar</button></div> }] : []),
         ]} />}
-        {admin && activo && Boolean(sesiones.data?.length) && <p className="work-muted">Las sesiones ya generadas se editan desde el calendario.</p>}
+        {admin && activo && Boolean(sesiones.data?.length) && <p className="work-muted">Al cambiar o eliminar un horario se actualizan sus sesiones futuras programadas. Las demás se editan desde el calendario.</p>}
       </section>
       <section className="work-section">
         <div className="work-section-title"><h2>Calendario de sesiones</h2>
@@ -132,8 +132,15 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
     </>}
     {horario && <Modal isOpen onClose={() => setHorario(null)} title={horario === "nuevo" ? "Agregar horario" : "Editar horario"}>
       <HorarioForm horario={horario === "nuevo" ? undefined : horario} onSubmit={async data => {
-        if (horario === "nuevo") await crearHorario(grupo, data);
-        else await actualizarHorario(horario.id_horario, data);
+        setError("");
+        if (horario === "nuevo") {
+          await crearHorario(grupo, data);
+          setNotice("Horario agregado. Usa Generar sesiones para crear sus sesiones.");
+        } else {
+          const result = await actualizarHorario(horario.id_horario, data);
+          setNotice(resumenCambio(result.sesiones));
+        }
+        sesiones.reload();
         setHorario(null);
         horarios.reload();
       }} />
@@ -143,7 +150,9 @@ export function CalendarioPage({ admin }: { admin: boolean }) {
       <Status error={error} />
       <div className="work-inline mt-4"><button className="work-secondary" onClick={() => setBorrar(null)}>Volver</button>
         <button className="work-primary" disabled={working} onClick={() => void action(async () => {
-          await eliminarHorario(borrar.id_horario); setBorrar(null); horarios.reload();
+          const result = await eliminarHorario(borrar.id_horario);
+          setBorrar(null); horarios.reload(); sesiones.reload();
+          setNotice(resumenEliminacion(result.sesiones_canceladas));
         })}>Eliminar horario</button></div>
     </Modal>}
     {cancelar && <Modal isOpen onClose={() => setCancelar(null)} title="Cancelar sesión">
@@ -300,6 +309,7 @@ function EvaluacionesSesion({ lista, onChange }: { lista: Lista; onChange: () =>
   const [edicion, setEdicion] = useState<Evaluacion | "nueva" | null>(null);
   const [calificar, setCalificar] = useState<Evaluacion | null>(null);
   const [nota, setNota] = useState<ResultadoEvaluacionItem | null>(null);
+  const [cierre, setCierre] = useState({ error: "", busy: false });
   const programada = lista.sesion.estado === "PROGRAMADA";
   const asistieron = lista.estudiantes.filter(e => e.estado_asistencia === "PRESENTE");
   const asistenciaCompleta = lista.estudiantes.length > 0 && lista.estudiantes.every(e => e.estado_asistencia);
@@ -318,6 +328,20 @@ function EvaluacionesSesion({ lista, onChange }: { lista: Lista; onChange: () =>
         </div> },
       ]} />}
       {!asistenciaCompleta && programada && <p className="work-muted"><Link className="work-link" to={`/asistencia?grupo=${lista.sesion.id_grupo}&sesion=${id}`}>Completar asistencia para calificar</Link></p>}
+      {!programada && <p className="work-muted" role="status">
+        {lista.sesion.estado === "CANCELADA"
+          ? "Esta sesión está cancelada: no admite evaluaciones."
+          : "Esta sesión ya fue finalizada: sus evaluaciones quedan cerradas. Puedes corregir notas existentes, pero para crear una evaluación elige una sesión programada."}
+      </p>}
+      {programada && asistenciaCompleta && <div className="work-inline mt-4">
+        <p className="work-muted">Cuando termines de calificar, cierra la clase con Finalizar sesión.</p>
+        <button className="work-secondary" disabled={cierre.busy} onClick={async () => {
+          setCierre({ error: "", busy: true });
+          try { await api(`/sesiones/${id}/finalizar`, "PATCH"); onChange(); setCierre({ error: "", busy: false }); }
+          catch (error) { setCierre({ error: message(error), busy: false }); }
+        }}>Finalizar sesión</button>
+      </div>}
+      <Status error={cierre.error || undefined} />
     </section>
     {resultados.data && <section className="work-section"><h2>Calificaciones</h2>
       <Table rows={resultados.data.filter(r => r.id_sesion === id)} rowKey={r => r.id_resultado} columns={[

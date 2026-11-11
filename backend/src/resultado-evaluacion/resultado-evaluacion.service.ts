@@ -153,27 +153,12 @@ export class ResultadoEvaluacionService {
           `);
         resultados.push(recordset[0]);
       }
-      const cierre = await tx.request().input('sesion', evaluacion.id_sesion)
-        .query(`
-        UPDATE s SET estado = 'REALIZADA'
-        FROM SESION_CLASE s WHERE s.id_sesion = @sesion AND s.estado = 'PROGRAMADA'
-          AND NOT EXISTS (
-            SELECT 1 FROM INSCRIPCION i WHERE i.id_grupo = s.id_grupo AND i.estado = 'ACTIVA'
-              AND i.fecha_inscripcion <= s.fecha_programada
-              AND NOT EXISTS (SELECT 1 FROM ASISTENCIA a WHERE a.id_sesion = @sesion AND a.id_inscripcion = i.id_inscripcion)
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM EVALUACION e CROSS JOIN ASISTENCIA a
-            WHERE e.id_sesion = @sesion AND a.id_sesion = @sesion AND NOT EXISTS (
-              SELECT 1 FROM RESULTADO_EVALUACION r WHERE r.id_evaluacion = e.id_evaluacion AND r.id_inscripcion = a.id_inscripcion
-            )
-          )
-      `);
+      // La sesión sigue PROGRAMADA para poder agregar más evaluaciones; se
+      // cierra con "Finalizar sesión" (PATCH /sesiones/:id/finalizar).
       return {
         mensaje: 'Resultados registrados.',
         id_evaluacion: idEvaluacion,
         cantidad: resultados.length,
-        sesion_finalizada: cierre.rowsAffected[0] > 0,
         resultados,
       };
     });

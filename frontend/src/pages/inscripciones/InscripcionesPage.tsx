@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { useToast } from "../../context/ToastContext";
 
@@ -32,7 +33,10 @@ function InscripcionesPage() {
 
   const [busqueda, setBusqueda] = useState("");
   const [estadoFiltro, setEstadoFiltro] = useState("todos");
-  const [cursoFiltro, setCursoFiltro] = useState<number | "todos">("todos");
+  const [params, setParams] = useSearchParams();
+  const [cursoFiltro, setCursoFiltro] = useState<number | "todos">(() => Number(params.get("curso")) || "todos");
+  // ?grupo=ID llega desde la pestaña Grupos.
+  const grupoFiltro = Number(params.get("grupo")) || 0;
   const [loading, setLoading] = useState(true);
 
   // Modales
@@ -119,7 +123,9 @@ function InscripcionesPage() {
       coincideCurso = grupoObj ? grupoObj.id_curso === Number(cursoFiltro) : true;
     }
 
-    return coincideTexto && coincideEstado && coincideCurso;
+    const coincideGrupo = !grupoFiltro || item.id_grupo === grupoFiltro;
+
+    return coincideTexto && coincideEstado && coincideCurso && coincideGrupo;
   });
 
   if (loading) {
@@ -199,6 +205,15 @@ function InscripcionesPage() {
           </select>
         </label>
       </div>
+
+      {grupoFiltro > 0 && (
+        <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
+          Mostrando las inscripciones del grupo{" "}
+          <strong className="text-gray-900">{grupos.find((g) => g.id_grupo === grupoFiltro)?.nombre ?? `#${grupoFiltro}`}</strong>.
+          <button type="button" onClick={() => { const p = new URLSearchParams(params); p.delete("grupo"); setParams(p, { replace: true }); }}
+            className="font-semibold text-blue-900 hover:underline">Ver todas</button>
+        </p>
+      )}
 
       {/* Listado tipo Cards */}
       <InscripcionCardList

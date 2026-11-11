@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,6 +8,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { GrupoService } from './grupo.service';
 import { CreateGrupoDto } from './dto/create-grupo.dto';
@@ -17,8 +19,13 @@ export class GrupoController {
   constructor(private readonly grupoService: GrupoService) {}
 
   @Get()
-  getGrupos() {
-    return this.grupoService.getGrupos();
+  getGrupos(@Query('estado') estado?: string) {
+    if (
+      estado !== undefined &&
+      !['EN_CURSO', 'FINALIZADO', 'CANCELADO', 'TODOS'].includes(estado)
+    )
+      throw new BadRequestException('Estado de grupo no válido.');
+    return this.grupoService.getGrupos(estado);
   }
 
   @Get(':id')

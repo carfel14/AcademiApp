@@ -27,10 +27,23 @@ const SELECT_GRUPO = `
 export class GrupoService {
   constructor(private readonly databaseService: DatabaseService) {}
 
-  async getGrupos() {
-    const result = await this.databaseService.getPool().request().query(`
+  /**
+   * Sin filtro devuelve los grupos en curso y finalizados (como antes).
+   * `estado` = EN_CURSO | FINALIZADO | CANCELADO | TODOS.
+   */
+  async getGrupos(estado?: string) {
+    const filtro =
+      estado === 'TODOS'
+        ? ''
+        : estado
+          ? 'WHERE g.estado = @estado'
+          : "WHERE g.estado IN ('EN_CURSO', 'FINALIZADO')";
+    const result = await this.databaseService
+      .getPool()
+      .request()
+      .input('estado', sql.VarChar(20), estado ?? null).query(`
       ${SELECT_GRUPO}
-      WHERE g.estado IN ('EN_CURSO', 'FINALIZADO')
+      ${filtro}
       ORDER BY g.fecha_inicio, g.id_grupo
     `);
     return result.recordset;

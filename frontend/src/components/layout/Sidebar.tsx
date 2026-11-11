@@ -1,9 +1,10 @@
 import { NavLink } from "react-router-dom";
-import { BookOpen, CalendarDays, ChartNoAxesColumn, ClipboardCheck, ClipboardList, CreditCard, GraduationCap, Bell, ScrollText, Shield, UsersRound } from "lucide-react";
+import { BookOpen, CalendarDays, ChartNoAxesColumn, ClipboardCheck, ClipboardList, CreditCard, GraduationCap, Bell, Layers, ScrollText, Shield, UsersRound } from "lucide-react";
 
 const groups = [
   { label: "Academia", links: [
     ["/cursos", "Cursos", GraduationCap, "ADMINISTRADOR"],
+    ["/grupos", "Grupos", Layers, "ADMINISTRADOR DOCENTE RECEPCION"],
     ["/planes", "Planes de estudio", BookOpen, "ADMINISTRADOR DOCENTE"],
     ["/calendario", "Horarios y sesiones", CalendarDays, "ADMINISTRADOR DOCENTE"],
     ["/asistencia", "Asistencia", ClipboardCheck, "ADMINISTRADOR DOCENTE"],
