@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { DatabaseModule } from '../database/database.module';
 import { SeguridadController } from './seguridad.controller';
+import { AlcanceInterceptor, AlcanceService } from './alcance';
 import { BitacoraInterceptor, SeguridadGuard } from './seguridad.guard';
 import { SeguridadService } from './seguridad.service';
 
@@ -10,7 +11,9 @@ import { SeguridadService } from './seguridad.service';
   controllers: [SeguridadController],
   providers: [
     SeguridadService,
+    AlcanceService,
     { provide: APP_GUARD, useClass: SeguridadGuard },
+    { provide: APP_INTERCEPTOR, useClass: AlcanceInterceptor },
     { provide: APP_INTERCEPTOR, useClass: BitacoraInterceptor },
   ],
 })

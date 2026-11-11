@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as sql from 'mssql';
+import { hoyLocal } from 'src/common/validaciones';
 import { DatabaseService } from 'src/database/database.service';
 import { CreateEstudianteDto } from './dto/create-estudiante.dto';
 import { UpdateEstudianteDto } from './dto/update-estudiante.dto';
@@ -19,11 +20,19 @@ const conflicto = (error: { number?: number }) => {
 export class EstudianteService {
   constructor(private readonly databaseService: DatabaseService) {}
 
-  async getEstudiantes() {
-    const result = await this.databaseService.getPool().request().query(`
-      SELECT * FROM ESTUDIANTE WHERE estado = 'ACTIVO' ORDER BY apellidos, nombres
-    `);
+  /** Sin filtro, solo activos (para inscribir). `TODOS` incluye los inactivos. */
+  async getEstudiantes(estado?: 'ACTIVO' | 'INACTIVO' | 'TODOS') {
+    const filtro =
+      estado === 'TODOS' ? '' : `WHERE estado = @estado`;
+    const result = await this.databaseService.getPool().request()
+      .input('estado', sql.VarChar(20), estado ?? 'ACTIVO')
+      .query(`SELECT * FROM ESTUDIANTE ${filtro} ORDER BY apellidos, nombres`);
     return result.recordset;
+  }
+
+  private validarNacimiento(fecha?: string | null) {
+    if (fecha && fecha.slice(0, 10) > hoyLocal())
+      throw new BadRequestException('La fecha de nacimiento no puede ser posterior a hoy.');
   }
 
   async getEstudiante(
@@ -45,6 +54,7 @@ export class EstudianteService {
    * EST-000001, EST-000002, ... a partir del id generado.
    */
   async createEstudiante(estudiante: CreateEstudianteDto) {
+    this.validarNacimiento(estudiante.fecha_nacimiento);
     return this.databaseService.transaction(async (tx) => {
       const codigo = estudiante.codigo?.trim();
       const { recordset } = await tx
@@ -92,6 +102,7 @@ export class EstudianteService {
   }
 
   async updateEstudiante(id: number, estudiante: UpdateEstudianteDto) {
+    this.validarNacimiento(estudiante.fecha_nacimiento);
     const campos: string[] = [];
     const request = this.databaseService
       .getPool()

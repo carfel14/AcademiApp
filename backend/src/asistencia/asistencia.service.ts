@@ -193,10 +193,10 @@ export class AsistenciaService {
             'La inscripción seleccionada no tiene mora.',
           );
         }
-        const estado =
-          conservaEstado || !alumno.tiene_mora
-            ? asistencia.estado_asistencia
-            : 'SUSPENDIDO_POR_MORA';
+        // Con mora en la fecha de la sesión, el estado es siempre SUSPENDIDO_POR_MORA.
+        const estado = alumno.tiene_mora
+          ? 'SUSPENDIDO_POR_MORA'
+          : asistencia.estado_asistencia;
         const result = await tx
           .request()
           .input('sesion', id)

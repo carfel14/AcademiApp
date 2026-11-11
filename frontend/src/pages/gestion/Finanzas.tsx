@@ -29,6 +29,8 @@ export function CobrosPage() {
     || i.id_inscripcion === inscripcion);
   const [action, setAction] = useState<"pago" | "prórroga" | "descuento" | "recargo" | null>(null);
   const o = cuenta.data?.obligacion;
+  // Una sola prórroga por obligación: si ya existe, se edita.
+  const prorroga = cuenta.data?.prorrogas[0];
   const fields: Record<string, Field[]> = {
     pago: [{ name: "monto_pagado", label: "Monto (C$)", type: "number", min: 0.01, max: o?.saldo_neto, step: "0.01" },
       { name: "fecha_pago", label: "Fecha del pago", type: "date", max: today() },
@@ -75,14 +77,14 @@ export function CobrosPage() {
               <div><dt>Saldo pendiente</dt><dd>{money(o.saldo_neto)}</dd></div>
             </dl>
             <p className="work-muted">Vence el {date(o.fecha_vencimiento_efectiva)}{o.dias_mora > 0 ? ` · ${o.dias_mora} días de mora` : ""}.</p>
-            {cuenta.data.prorrogas.length > 0 && <p className="work-muted">Prórrogas · {cuenta.data.prorrogas.map(p => `del ${date(p.fecha_inicio)} al ${date(p.fecha_finalizacion)}`).join("; ")}</p>}
+            {prorroga && <p className="work-muted">Prórroga del {date(prorroga.fecha_inicio)} al {date(prorroga.fecha_finalizacion)}{prorroga.observacion ? ` · ${prorroga.observacion}` : ""}.</p>}
             {cuenta.data.descuentos.length > 0 && <p className="work-muted">Descuentos aplicados · {cuenta.data.descuentos.map(d => `${d.nombre} (${money(Number(d.monto_descontado))})`).join(", ")}</p>}
             {cuenta.data.recargos.length > 0 && <p className="work-muted">Recargos · {cuenta.data.recargos.map(r => `${r.motivo} (${money(Number(r.monto))})`).join(", ")}</p>}
             {o.estado === "PENDIENTE" && <div className="work-inline my-4">
-              <button className="work-primary" onClick={() => setAction("pago")}>Registrar abono</button>
-              <button className="work-secondary" onClick={() => setAction("prórroga")}>Conceder prórroga</button>
-              <button className="work-secondary" onClick={() => { descuentos.reload(); setAction("descuento"); }}>Aplicar descuento</button>
-              <button className="work-secondary" onClick={() => setAction("recargo")}>Agregar recargo</button>
+              <button className="work-secondary work-toggle" aria-pressed={action === "pago"} onClick={() => setAction("pago")}>Registrar abono</button>
+              <button className="work-secondary work-toggle" aria-pressed={action === "prórroga"} onClick={() => setAction("prórroga")}>{prorroga ? "Editar prórroga" : "Conceder prórroga"}</button>
+              <button className="work-secondary work-toggle" aria-pressed={action === "descuento"} onClick={() => { descuentos.reload(); setAction("descuento"); }}>Aplicar descuento</button>
+              <button className="work-secondary work-toggle" aria-pressed={action === "recargo"} onClick={() => setAction("recargo")}>Agregar recargo</button>
             </div>}
             {action && <section className="work-section">
               <div className="work-section-title"><h2>{label(action)}</h2><button className="work-link" onClick={() => setAction(null)}>Volver al detalle</button></div>
@@ -90,10 +92,10 @@ export function CobrosPage() {
               {action === "descuento" && descuentos.data && !fields.descuento[0].options?.length
                 ? <p className="work-muted">Crea un descuento activo en el catálogo para aplicarlo.</p>
                 : <EditForm key={action} fields={[...fields[action], ...(action !== "recargo" ? [{ name: "observacion", label: "Observación", type: "textarea" as const, max: 500, required: false }] : [])]}
-                  initial={action === "pago" ? { fecha_pago: today() } : {}}
+                  initial={action === "pago" ? { fecha_pago: today() } : action === "prórroga" && prorroga ? { ...prorroga } : {}}
                   onSave={async data => {
                     if (action === "pago") await api("/pagos", "POST", { ...data, id_obligacion: id });
-                    else if (action === "prórroga") await api("/prorrogas", "POST", { ...data, id_obligacion: id });
+                    else if (action === "prórroga") await api(prorroga ? `/prorrogas/${prorroga.id_prorroga}` : "/prorrogas", prorroga ? "PATCH" : "POST", prorroga ? data : { ...data, id_obligacion: id });
                     else await api(`/cobros/${id}/${action}`, "POST", data);
                     setAction(null); cuenta.reload(); obligaciones.reload();
                   }} />}

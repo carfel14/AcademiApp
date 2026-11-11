@@ -41,7 +41,7 @@ function EstudiantesPage() {
     try {
       if (refresh) setLoading(true);
       const [estudiantesData, inscripcionesData] = await Promise.all([
-        obtenerEstudiantes(),
+        obtenerEstudiantes("TODOS"),
         obtenerInscripciones(),
       ]);
 

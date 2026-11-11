@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,6 +8,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { EstudianteService } from './estudiante.service';
 import { CreateEstudianteDto } from './dto/create-estudiante.dto';
@@ -17,8 +19,10 @@ export class EstudianteController {
   constructor(private readonly estudianteService: EstudianteService) {}
 
   @Get()
-  getEstudiantes() {
-    return this.estudianteService.getEstudiantes();
+  getEstudiantes(@Query('estado') estado?: string) {
+    if (estado !== undefined && !['ACTIVO', 'INACTIVO', 'TODOS'].includes(estado))
+      throw new BadRequestException('Estado de estudiante no válido.');
+    return this.estudianteService.getEstudiantes(estado as 'ACTIVO' | 'INACTIVO' | 'TODOS' | undefined);
   }
 
   @Get(':id')

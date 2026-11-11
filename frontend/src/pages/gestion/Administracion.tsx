@@ -27,7 +27,7 @@ function PlanCurso({ curso, editable }: { curso: number; editable: boolean }) {
   const planes = useData<Row[]>(`/planes/planes?padre=${curso}&revision=${version}`);
   const unidades = useData<Row[]>(plan ? `/planes/unidades?padre=${plan}&revision=${version}` : null);
   return <>
-    <Catalog title="Planes del curso" singular="plan" path="/planes/planes" id="id_plan" editable={editable}
+    <Catalog title="Planes del curso" singular="plan" path="/planes/planes" id="id_plan" editable={editable} eliminable
       parent={{ key: "id_curso", id: curso }} onChange={() => setVersion(v => v + 1)}
       fields={[nombre, descripcion, { name: "version", label: "Versión", type: "number", min: 1, max: 32767 },
         { name: "estado", label: "Estado", options: options(["ACTIVO", "INACTIVO"]) }]}
@@ -36,12 +36,12 @@ function PlanCurso({ curso, editable }: { curso: number; editable: boolean }) {
     <div className="work-toolbar"><Select name="Plan" value={plan} onChange={v => { setPlan(v); setUnidad(""); }}
       items={(planes.data ?? []).map(p => ({ value: Number(p.id_plan), label: `${p.nombre} · versión ${p.version}` }))} /></div>
     {plan && <>
-      <Catalog key={plan} title="Unidades del plan" singular="unidad" path="/planes/unidades" id="id_unidad" editable={editable}
+      <Catalog key={plan} title="Unidades del plan" singular="unidad" path="/planes/unidades" id="id_unidad" editable={editable} eliminable
         parent={{ key: "id_plan", id: Number(plan) }} fields={[nombre, descripcion, orden]} onChange={() => setVersion(v => v + 1)} />
       <Status {...unidades} retry={unidades.reload} />
       <div className="work-toolbar"><Select name="Unidad" value={unidad} onChange={setUnidad}
-        items={(unidades.data ?? []).map(u => ({ value: Number(u.id_unidad), label: String(u.nombre) }))} /></div>
-      {unidad && <Catalog key={unidad} title="Temas de la unidad" singular="tema" path="/planes/temas" id="id_tema" editable={editable}
+        items={(unidades.data ?? []).map(u => ({ value: Number(u.id_unidad), label: `${u.orden}. ${u.nombre}` }))} /></div>
+      {unidad && <Catalog key={unidad} title="Temas de la unidad" singular="tema" path="/planes/temas" id="id_tema" editable={editable} eliminable
         parent={{ key: "id_unidad", id: Number(unidad) }} fields={[nombre, descripcion, orden, {
           name: "modalidad", label: "Modalidad", options: [{ value: "TEORICO", label: "Teórico" }, { value: "PRACTICO", label: "Práctico" }, { value: "DEMOSTRACION", label: "Demostración" }],
         }, { name: "horas_estimadas", label: "Horas estimadas", type: "number", required: false, min: 0.01, max: 999.99, step: "0.01" }]} />}

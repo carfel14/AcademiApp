@@ -31,7 +31,20 @@ export class ProfesorController {
 
   @Post('especialidades')
   createEspecialidad(@Body() body: CreateEspecialidadDto) {
-    return this.profesorService.createEspecialidad(body.nombre);
+    return this.profesorService.guardarEspecialidad(body.nombre);
+  }
+
+  @Patch('especialidades/:id')
+  updateEspecialidad(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: CreateEspecialidadDto,
+  ) {
+    return this.profesorService.guardarEspecialidad(body.nombre, id);
+  }
+
+  @Delete('especialidades/:id')
+  deleteEspecialidad(@Param('id', ParseIntPipe) id: number) {
+    return this.profesorService.deleteEspecialidad(id);
   }
 
   @Get(':id')

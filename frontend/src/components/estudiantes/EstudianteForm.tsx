@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { User, Phone, Calendar, Plus, Save } from "lucide-react";
 import { estudianteSchema, type EstudianteFormData } from "../../schema/estudianteSchema";
+import { hoy } from "../../schema/validaciones";
 import type { Estudiante } from "../../types/estudiante";
 
 interface EstudianteFormProps {
@@ -101,6 +102,7 @@ function EstudianteForm({ estudiante, onSubmit }: EstudianteFormProps) {
             </label>
             <input
               type="date"
+              max={hoy()}
               {...register("fecha_nacimiento")}
               className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
             />

@@ -156,6 +156,17 @@ export class GrupoService {
 
   /** Cancela el grupo. fecha_fin registra el cierre si el grupo ya había iniciado. */
   async deleteGrupo(id: number) {
+    const activas = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, id)
+      .query(
+        "SELECT COUNT(*) AS total FROM INSCRIPCION WHERE id_grupo = @id AND estado = 'ACTIVA'",
+      );
+    if (activas.recordset[0].total > 0)
+      throw new BadRequestException(
+        `No se puede cancelar el grupo: tiene ${activas.recordset[0].total} inscripción(es) activa(s). Cancélalas o finaliza el grupo.`,
+      );
     const result = await this.databaseService
       .getPool()
       .request()

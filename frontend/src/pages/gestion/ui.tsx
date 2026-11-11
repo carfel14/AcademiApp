@@ -85,20 +85,28 @@ export function EditForm({ fields, initial = {}, onSave, saveLabel = "Guardar" }
   </form>;
 }
 
-export function Catalog({ title, singular, path, id, fields, defaults, parent, editable = true, onChange }: {
+export function Catalog({ title, singular, path, id, fields, defaults, parent, editable = true, eliminable = false, onChange }: {
   title: string; singular: string; path: string; id: string; fields: Field[]; defaults?: Row; parent?: { key: string; id: number };
-  editable?: boolean; onChange?: () => void;
+  editable?: boolean; eliminable?: boolean; onChange?: () => void;
 }) {
   const query = useData<Row[]>(parent?.id === 0 ? null : path + (parent ? `?padre=${parent.id}` : ""));
   const [editing, setEditing] = useState<Row | null>(null);
+  const [borrar, setBorrar] = useState<Row | null>(null);
+  const [errorBorrar, setErrorBorrar] = useState("");
+  // Sugiere el siguiente número de orden (UQ por padre en el script).
+  const siguienteOrden: Row = fields.some(f => f.name === "orden")
+    ? { orden: Math.max(0, ...(query.data ?? []).map(r => Number(r.orden) || 0)) + 1 } : {};
   const columns: Column<Row>[] = fields.filter(f => f.type !== "textarea").map(field => ({
     label: field.label, numeric: field.type === "number",
     cell: row => field.options?.find(option => option.value === row[field.name])?.label ?? String(row[field.name] ?? "—"),
   }));
-  if (editable) columns.push({ label: "Acción", cell: row => <button className="work-link" onClick={() => setEditing(row)}>Editar</button> });
+  if (editable) columns.push({ label: "Acción", cell: row => <div className="work-inline">
+    <button className="work-link" onClick={() => setEditing(row)}>Editar</button>
+    {eliminable && <button className="work-link" onClick={() => { setErrorBorrar(""); setBorrar(row); }}>Eliminar</button>}
+  </div> });
   return <section className="work-section">
     <div className="work-section-title"><h2>{title}</h2>
-      {editable && parent?.id !== 0 && <button className="work-secondary" onClick={() => setEditing(defaults ?? {})}>Agregar {singular}</button>}
+      {editable && parent?.id !== 0 && <button className="work-secondary" onClick={() => setEditing({ ...siguienteOrden, ...defaults })}>Agregar {singular}</button>}
     </div>
     <Status {...query} retry={query.reload} />
     {query.data && <Table rows={query.data} columns={columns} rowKey={row => Number(row[id])} />}
@@ -112,6 +120,17 @@ export function Catalog({ title, singular, path, id, fields, defaults, parent, e
         query.reload();
         onChange?.();
       }} />
+    </Modal>}
+    {borrar && <Modal isOpen onClose={() => setBorrar(null)} title={`Eliminar ${singular}`}>
+      <p className="text-sm text-gray-600">¿Eliminar «{String(borrar.nombre ?? borrar[id])}»? Esta acción no se puede deshacer.</p>
+      {errorBorrar && <p className="work-error mt-3" role="alert">{errorBorrar}</p>}
+      <div className="work-inline mt-4">
+        <button className="work-secondary" onClick={() => setBorrar(null)}>Volver</button>
+        <button className="work-primary" onClick={async () => {
+          try { await api(`${path}/${borrar[id]}`, "DELETE"); setBorrar(null); query.reload(); onChange?.(); }
+          catch (error) { setErrorBorrar(message(error)); }
+        }}>Eliminar</button>
+      </div>
     </Modal>}
   </section>;
 }

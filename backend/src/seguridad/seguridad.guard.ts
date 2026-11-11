@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { mergeMap } from 'rxjs';
 import { contextoUsuario } from '../database/database.service';
+import { type Alcance, AlcanceService } from './alcance';
 import { AuthRequest } from './seguridad.controller';
 import { SeguridadService } from './seguridad.service';
 
@@ -56,9 +57,21 @@ const permisos: Record<string, Regla> = {
   },
 };
 
+const permite = (rol: string, metodo: string, recurso: string) => {
+  const regla = permisos[rol];
+  return Boolean(
+    regla &&
+      (regla.escritura.includes(recurso) ||
+        (metodo === 'GET' && regla.lectura.includes(recurso))),
+  );
+};
+
 @Injectable()
 export class SeguridadGuard implements CanActivate {
-  constructor(private readonly seguridad: SeguridadService) {}
+  constructor(
+    private readonly seguridad: SeguridadService,
+    private readonly alcance: AlcanceService,
+  ) {}
 
   async canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<AuthRequest>();
@@ -97,15 +110,15 @@ export class SeguridadGuard implements CanActivate {
     )
       throw new ForbiddenException();
 
-    const permitido = req.usuario.roles.some((rol) => {
-      const regla = permisos[rol];
-      return (
-        regla &&
-        (regla.escritura.includes(recurso) ||
-          (req.method === 'GET' && regla.lectura.includes(recurso)))
-      );
-    });
-    if (permitido) return true;
+    const otros = req.usuario.roles.filter((rol) => rol !== 'DOCENTE');
+    if (otros.some((rol) => permite(rol, req.method, recurso))) return true;
+    if (req.usuario.roles.includes('DOCENTE') && permite('DOCENTE', req.method, recurso)) {
+      // Solo por ser docente: queda limitado a sus grupos asignados.
+      const r = req as AuthRequest & { alcance?: Alcance; body?: Record<string, unknown> };
+      r.alcance = await this.alcance.calcular(req.usuario.id_profesor);
+      await this.alcance.verificar(r);
+      return true;
+    }
     throw new ForbiddenException(
       'Tu rol no tiene permiso para esta operación.',
     );

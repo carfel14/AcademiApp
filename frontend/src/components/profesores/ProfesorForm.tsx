@@ -1,21 +1,25 @@
 // src/components/profesores/ProfesorForm.tsx
 import { useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { User, Phone, GraduationCap, Plus, Save } from "lucide-react";
+import { User, Phone, GraduationCap, Plus, Save, X } from "lucide-react";
 
 import { profesorSchema, type ProfesorFormData } from "../../schema/profesorSchema";
-import type { Profesor } from "../../types/profesor";
+import type { Especialidad, Profesor } from "../../types/profesor";
 
 interface ProfesorFormProps {
   profesor?: Profesor;
+  /** Catálogo ESPECIALIDAD para el dropdown. */
+  especialidades: Especialidad[];
   onSubmit: (data: ProfesorFormData) => Promise<void>;
 }
 
-function ProfesorForm({ profesor, onSubmit }: ProfesorFormProps) {
+function ProfesorForm({ profesor, especialidades, onSubmit }: ProfesorFormProps) {
   const {
     register,
     handleSubmit,
+    control,
+    setValue,
     formState: { errors, isSubmitting },
     reset,
   } = useForm<ProfesorFormData>({
@@ -24,7 +28,7 @@ function ProfesorForm({ profesor, onSubmit }: ProfesorFormProps) {
       nombres: "",
       apellidos: "",
       telefono: "",
-      especialidades: "",
+      especialidades: [],
     },
   });
 
@@ -33,9 +37,16 @@ function ProfesorForm({ profesor, onSubmit }: ProfesorFormProps) {
       nombres: profesor?.nombres ?? "",
       apellidos: profesor?.apellidos ?? "",
       telefono: profesor?.telefono ?? "",
-      especialidades: profesor?.especialidades.map((e) => e.nombre).join(", ") ?? "",
+      especialidades: profesor?.especialidades.map((e) => e.id_especialidad) ?? [],
     });
   }, [profesor, reset]);
+
+  const elegidas = useWatch({ control, name: "especialidades" }) ?? [];
+  const disponibles = especialidades.filter((e) => !elegidas.includes(e.id_especialidad));
+  const nombre = (id: number) =>
+    especialidades.find((e) => e.id_especialidad === id)?.nombre ??
+    profesor?.especialidades.find((e) => e.id_especialidad === id)?.nombre ?? `#${id}`;
+  const cambiar = (ids: number[]) => setValue("especialidades", ids, { shouldDirty: true, shouldValidate: true });
 
   async function handleFormSubmit(data: ProfesorFormData) {
     await onSubmit(data);
@@ -123,11 +134,31 @@ function ProfesorForm({ profesor, onSubmit }: ProfesorFormProps) {
               <GraduationCap className="h-4 w-4 text-blue-700" />
               Especialidades
             </label>
-            <input
-              {...register("especialidades")}
-              placeholder="Separadas por coma. Ej. Colorimetría, Corte"
-              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
-            />
+            <select
+              aria-label="Agregar especialidad"
+              value=""
+              onChange={(e) => e.target.value && cambiar([...elegidas, Number(e.target.value)])}
+              disabled={!disponibles.length}
+              className="mt-2 w-full rounded-md border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 disabled:bg-gray-50"
+            >
+              <option value="">
+                {especialidades.length ? (disponibles.length ? "Agregar especialidad…" : "Ya elegiste todas") : "No hay especialidades en el catálogo"}
+              </option>
+              {disponibles.map((e) => <option key={e.id_especialidad} value={e.id_especialidad}>{e.nombre}</option>)}
+            </select>
+            {elegidas.length > 0 && (
+              <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Especialidades elegidas">
+                {elegidas.map((id) => (
+                  <li key={id} className="flex items-center gap-1 rounded-full bg-blue-50 py-1 pl-3 pr-1 text-xs font-medium text-blue-900">
+                    {nombre(id)}
+                    <button type="button" onClick={() => cambiar(elegidas.filter((x) => x !== id))}
+                      aria-label={`Quitar ${nombre(id)}`} className="rounded-full p-0.5 hover:bg-blue-100">
+                      <X className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             {errors.especialidades && (
               <p className="mt-1.5 text-xs font-medium text-red-600">
                 {errors.especialidades.message}

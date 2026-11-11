@@ -68,6 +68,16 @@ export class ProrrogaService {
       throw new NotFoundException(
         `La obligación con id ${prorroga.id_obligacion} no fue encontrada.`,
       );
+    // Regla de la academia: una sola prórroga por obligación (se edita si cambia).
+    const existente = await this.databaseService
+      .getPool()
+      .request()
+      .input('id', sql.Int, prorroga.id_obligacion)
+      .query('SELECT TOP (1) id_prorroga FROM PRORROGA WHERE id_obligacion = @id');
+    if (existente.recordset.length)
+      throw new BadRequestException(
+        'La obligación ya tiene una prórroga. Edítala en lugar de crear otra.',
+      );
     this.validar(
       obligacion,
       prorroga.fecha_inicio,

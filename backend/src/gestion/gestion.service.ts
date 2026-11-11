@@ -63,7 +63,7 @@ export class GestionService {
       .query(statement)
       .catch((error) => {
         if ([2601, 2627].includes(error.number))
-          throw new ConflictException('Ya existe un registro con esos datos.');
+          throw new ConflictException(this.duplicado(String(error.message)));
         if (error.number === 547)
           throw new BadRequestException(
             'Revisa la relación y los valores seleccionados.',
@@ -73,6 +73,49 @@ export class GestionService {
     if (!recordset.length)
       throw new NotFoundException('El registro no existe.');
     return recordset[0];
+  }
+
+  /** Mensaje según la restricción UNIQUE del script que se violó. */
+  private duplicado(mensaje: string) {
+    const reglas: [string, string][] = [
+      ['UQ_PLAN_ESTUDIO_id_curso_version', 'Este curso ya tiene un plan con esa versión.'],
+      ['UQ_UNIDAD_ESTUDIO_id_plan_orden', 'Ya hay una unidad con ese orden en el plan.'],
+      ['UQ_TEMA_ESTUDIO_id_unidad_orden', 'Ya hay un tema con ese orden en la unidad.'],
+      ['UQ_PLANTILLA_NOTIFICACION_nombre', 'Ya existe una plantilla con ese nombre.'],
+      ['UQ_REGLA_RECORDATORIO', 'Esa plantilla ya tiene una regla con esos días.'],
+    ];
+    return reglas.find(([nombre]) => mensaje.includes(nombre))?.[1] ?? 'Ya existe un registro con esos datos.';
+  }
+
+  /** Elimina un plan, unidad o tema si nada depende de él. */
+  async eliminar(nombre: string, id: number) {
+    if (!['planes', 'unidades', 'temas'].includes(nombre))
+      throw new NotFoundException('Este catálogo no admite eliminación.');
+    const config = this.config(nombre);
+    const uso: Record<string, string> = {
+      planes: `SELECT
+        (SELECT COUNT(*) FROM GRUPO WHERE id_plan = @id) AS grupos,
+        (SELECT COUNT(*) FROM UNIDAD_ESTUDIO WHERE id_plan = @id) AS unidades`,
+      unidades: 'SELECT (SELECT COUNT(*) FROM TEMA_ESTUDIO WHERE id_unidad = @id) AS temas',
+      temas: 'SELECT (SELECT COUNT(*) FROM PROGRAMACION_CONTENIDO WHERE id_tema = @id) AS sesiones',
+    };
+    const pool = this.db.getPool();
+    const [conteo] = (await pool.request().input('id', sql.Int, id).query(uso[nombre])).recordset;
+    const etiquetas: Record<string, [string, string]> = {
+      grupos: ['grupo', 'grupos'],
+      unidades: ['unidad', 'unidades'],
+      temas: ['tema', 'temas'],
+      sesiones: ['sesión con este tema programado', 'sesiones con este tema programado'],
+    };
+    const enUso = Object.entries(conteo as Record<string, number>)
+      .filter(([, n]) => n > 0)
+      .map(([que, n]) => `${n} ${etiquetas[que][n === 1 ? 0 : 1]}`);
+    if (enUso.length)
+      throw new BadRequestException(`No se puede eliminar: tiene ${enUso.join(' y ')}.`);
+    const result = await pool.request().input('id', sql.Int, id)
+      .query(`DELETE FROM dbo.${config.table} WHERE ${config.key} = @id`);
+    if (!result.rowsAffected[0]) throw new NotFoundException('El registro no existe.');
+    return { mensaje: 'Registro eliminado.', [config.key]: id };
   }
 
   async cuenta(id: number) {

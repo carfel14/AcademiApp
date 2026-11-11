@@ -25,8 +25,9 @@ function payload(data: EstudianteFormData) {
   };
 }
 
-export async function obtenerEstudiantes(): Promise<Estudiante[]> {
-  const data = await api<Estudiante[]>(API_URL);
+/** Sin estado: solo activos. "TODOS" incluye también a los inactivos. */
+export async function obtenerEstudiantes(estado?: "ACTIVO" | "INACTIVO" | "TODOS"): Promise<Estudiante[]> {
+  const data = await api<Estudiante[]>(estado ? `${API_URL}?estado=${estado}` : API_URL);
   return Array.isArray(data) ? data.map(normalizarEstudiante) : [];
 }
 

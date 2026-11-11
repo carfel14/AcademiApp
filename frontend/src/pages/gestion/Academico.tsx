@@ -194,8 +194,14 @@ function ContenidoSesion({ sesion, idPlan, editable }: { sesion: Sesion; idPlan:
   const [error, setError] = useState("");
   const delPlan = new Set((unidades.data ?? []).map(u => u.id_unidad));
   const usados = new Set((contenidos.data ?? []).map(c => c.id_tema));
-  const disponibles = (temas.data ?? []).filter(t => delPlan.has(t.id_unidad) && !usados.has(t.id_tema));
-  const unidad = (id: number) => unidades.data?.find(u => u.id_unidad === id)?.nombre ?? "";
+  const ordenUnidad = (id: number) => unidades.data?.find(u => u.id_unidad === id)?.orden ?? 0;
+  const disponibles = (temas.data ?? [])
+    .filter(t => delPlan.has(t.id_unidad) && !usados.has(t.id_tema))
+    .sort((a, b) => ordenUnidad(a.id_unidad) - ordenUnidad(b.id_unidad) || a.orden - b.orden);
+  const unidad = (id: number) => {
+    const u = unidades.data?.find(x => x.id_unidad === id);
+    return u ? `${u.orden}. ${u.nombre}` : "";
+  };
 
   async function run(work: () => Promise<unknown>) {
     setError("");
@@ -281,11 +287,21 @@ function ListaAsistencia({ lista, onChange }: { lista: Lista; onChange: () => vo
     <form onSubmit={save}>
       <Table stack rows={lista.estudiantes} rowKey={e => e.id_inscripcion} empty="Esta sesión no tiene estudiantes en la lista." columns={[
         { label: "Estudiante", cell: e => `${e.nombres} ${e.apellidos}` },
-        { label: "Asistencia", cell: e => editable ? <select aria-label={`Asistencia de ${e.nombres} ${e.apellidos}`} name={`estado-${e.id_inscripcion}`} required
-          defaultValue={e.estado_asistencia ?? (e.tiene_mora ? "SUSPENDIDO_POR_MORA" : "")}>
-          <option value="">Selecciona estado</option>
-          {Object.entries(estados).filter(([estado]) => estado !== "SUSPENDIDO_POR_MORA" || e.tiene_mora || e.estado_asistencia === estado).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
-        </select> : estados[e.estado_asistencia ?? ""] ?? "—" },
+        { label: "Asistencia", cell: e => !editable ? estados[e.estado_asistencia ?? ""] ?? "—"
+          // Con mora en la fecha de la sesión el estado queda fijo; el backend también lo exige.
+          : e.tiene_mora ? <>
+            <select aria-label={`Asistencia de ${e.nombres} ${e.apellidos}`} disabled value="SUSPENDIDO_POR_MORA"
+              title="Tiene pagos vencidos a la fecha de la sesión">
+              <option value="SUSPENDIDO_POR_MORA">{estados.SUSPENDIDO_POR_MORA}</option>
+            </select>
+            <input type="hidden" name={`estado-${e.id_inscripcion}`} value="SUSPENDIDO_POR_MORA" />
+            <small className="block work-muted">Bloqueado: pagos vencidos a esta fecha.</small>
+          </>
+          : <select aria-label={`Asistencia de ${e.nombres} ${e.apellidos}`} name={`estado-${e.id_inscripcion}`} required
+            defaultValue={e.estado_asistencia === "SUSPENDIDO_POR_MORA" ? "" : e.estado_asistencia ?? ""}>
+            <option value="">Selecciona estado</option>
+            {Object.entries(estados).filter(([estado]) => estado !== "SUSPENDIDO_POR_MORA").map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+          </select> },
         { label: "Observación", cell: e => editable ? <input aria-label={`Observación de ${e.nombres} ${e.apellidos}`} name={`nota-${e.id_inscripcion}`} defaultValue={e.observacion ?? ""} maxLength={500} /> : e.observacion ?? "—" },
       ]} />
       <Status error={error} />{notice && <p className="work-notice" role="status">{notice}</p>}

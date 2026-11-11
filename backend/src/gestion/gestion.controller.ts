@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -80,6 +81,14 @@ export class GestionController {
     @Body() data: Record<string, unknown>,
   ) {
     return this.gestion.guardar(catalogo, data, id);
+  }
+
+  @Delete('planes/:catalogo/:id')
+  eliminar(
+    @Param('catalogo') catalogo: string,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.gestion.eliminar(catalogo, id);
   }
 
   @Get('cobros/:id')

@@ -119,3 +119,6 @@ button:not(:disabled) { cursor: pointer; }
   .work-table-stack :is(select, input) { min-height: 44px; }
   .work-mobile-label { display: block; margin-bottom: 3px; color: var(--work-muted); font-size: 12px; }
 }
+
+/* Botón de opción: muestra cuál acción está abierta. */
+.work-toggle[aria-pressed="true"] { background: #e3ecf6; border-color: #203c5e; color: #142b46; box-shadow: inset 0 0 0 1px #203c5e; }

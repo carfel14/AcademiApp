@@ -29,6 +29,7 @@ export class ResultadoEvaluacionService {
         e.tipo,
         e.id_sesion,
         i.id_estudiante,
+        i.id_grupo,
         est.codigo,
         est.nombres,
         est.apellidos
@@ -62,6 +63,7 @@ export class ResultadoEvaluacionService {
           e.tipo,
           e.id_sesion,
           i.id_estudiante,
+          i.id_grupo,
           est.codigo,
           est.nombres,
           est.apellidos
@@ -309,6 +311,7 @@ export class ResultadoEvaluacionService {
           e.tipo,
           e.id_sesion,
           i.id_estudiante,
+          i.id_grupo,
           est.codigo,
           est.nombres,
           est.apellidos

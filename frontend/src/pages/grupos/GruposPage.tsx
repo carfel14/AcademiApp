@@ -285,7 +285,9 @@ function GruposPage({ editable, verCalendario, verInscripciones }: GruposPagePro
                         <Pencil className="h-4 w-4 text-yellow-600" aria-hidden="true" />
                       </button>
                       <button type="button" onClick={() => setConfirmacion({ grupo: g, accion: "finalizar" })} className="rounded-md px-2 py-1 font-semibold text-green-700 hover:bg-green-50">Finalizar</button>
-                      <button type="button" onClick={() => setConfirmacion({ grupo: g, accion: "cancelar" })} className="rounded-md px-2 py-1 font-semibold text-red-600 hover:bg-red-50">Cancelar</button>
+                      <button type="button" disabled={Boolean(g.inscritos)} onClick={() => setConfirmacion({ grupo: g, accion: "cancelar" })}
+                        title={g.inscritos ? "No se puede cancelar: tiene inscripciones activas" : "Cancelar grupo"}
+                        className="rounded-md px-2 py-1 font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-transparent">Cancelar</button>
                     </span>
                   )}
                 </div>

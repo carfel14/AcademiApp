@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -47,23 +48,59 @@ export class ProfesorService {
     return leer(result.recordset[0]);
   }
 
+  /** Catálogo ESPECIALIDAD con cuántos profesores la tienen asignada. */
   async getEspecialidades() {
     const result = await this.databaseService.getPool().request().query(`
-      SELECT * FROM ESPECIALIDAD ORDER BY nombre
+      SELECT e.*,
+        (SELECT COUNT(*) FROM PROFESOR_ESPECIALIDAD pe
+          WHERE pe.id_especialidad = e.id_especialidad) AS profesores
+      FROM ESPECIALIDAD e ORDER BY e.nombre
     `);
     return result.recordset;
   }
 
-  async createEspecialidad(nombre: string) {
+  async guardarEspecialidad(nombre: string, id?: number) {
     const result = await this.databaseService
       .getPool()
       .request()
-      .input('nombre', sql.NVarChar(100), nombre.trim()).query(`
-        IF NOT EXISTS (SELECT 1 FROM ESPECIALIDAD WHERE nombre = @nombre)
-          INSERT INTO ESPECIALIDAD (nombre) VALUES (@nombre);
-        SELECT * FROM ESPECIALIDAD WHERE nombre = @nombre;
-      `);
+      .input('id', sql.Int, id ?? null)
+      .input('nombre', sql.NVarChar(100), nombre.trim())
+      .query(
+        `
+        IF @id IS NULL
+          INSERT INTO ESPECIALIDAD (nombre) OUTPUT INSERTED.* VALUES (@nombre);
+        ELSE
+          UPDATE ESPECIALIDAD SET nombre = @nombre OUTPUT INSERTED.* WHERE id_especialidad = @id;
+      `,
+      )
+      .catch((error) => {
+        // UQ_ESPECIALIDAD_nombre
+        if ([2601, 2627].includes(error.number))
+          throw new ConflictException('Ya existe una especialidad con ese nombre.');
+        throw error;
+      });
+    if (!result.recordset.length)
+      throw new NotFoundException('La especialidad no existe.');
     return result.recordset[0];
+  }
+
+  /** Solo se elimina si ningún profesor la tiene asignada. */
+  async deleteEspecialidad(id: number) {
+    const pool = this.databaseService.getPool();
+    const uso = await pool.request().input('id', sql.Int, id).query(`
+      SELECT COUNT(*) AS total FROM PROFESOR_ESPECIALIDAD WHERE id_especialidad = @id
+    `);
+    if (uso.recordset[0].total > 0)
+      throw new BadRequestException(
+        `No se puede eliminar: ${uso.recordset[0].total} profesor(es) tienen esta especialidad.`,
+      );
+    const result = await pool
+      .request()
+      .input('id', sql.Int, id)
+      .query('DELETE ESPECIALIDAD WHERE id_especialidad = @id');
+    if (!result.rowsAffected[0])
+      throw new NotFoundException('La especialidad no existe.');
+    return { mensaje: 'Especialidad eliminada.', id_especialidad: id };
   }
 
   async createProfesor(profesor: CreateProfesorDto) {
@@ -131,30 +168,32 @@ export class ProfesorService {
     return this.getProfesor(id);
   }
 
-  /** Reemplaza las especialidades del profesor; crea las que no existan. */
+  /** Reemplaza las especialidades del profesor por las elegidas del catálogo. */
   private async guardarEspecialidades(
     tx: sql.Transaction,
     id: number,
-    especialidades: string[],
+    especialidades: number[],
   ) {
-    const nombres = [
-      ...new Set(especialidades.map((e) => e.trim()).filter(Boolean)),
-    ];
+    const ids = JSON.stringify([...new Set(especialidades)]);
+    const existentes = await tx
+      .request()
+      .input('ids', sql.NVarChar(sql.MAX), ids)
+      .query(
+        'SELECT COUNT(*) AS total FROM ESPECIALIDAD WHERE id_especialidad IN (SELECT value FROM OPENJSON(@ids))',
+      );
+    if (existentes.recordset[0].total !== new Set(especialidades).size)
+      throw new BadRequestException(
+        'Una de las especialidades seleccionadas no existe.',
+      );
     await tx
       .request()
       .input('id', sql.Int, id)
-      .input('nombres', sql.NVarChar(sql.MAX), JSON.stringify(nombres)).query(`
-        DECLARE @lista TABLE (nombre NVARCHAR(100) PRIMARY KEY);
-        INSERT INTO @lista SELECT DISTINCT value FROM OPENJSON(@nombres);
-        INSERT INTO ESPECIALIDAD (nombre)
-        SELECT l.nombre FROM @lista l
-        WHERE NOT EXISTS (SELECT 1 FROM ESPECIALIDAD e WHERE e.nombre = l.nombre);
-        DELETE pe FROM PROFESOR_ESPECIALIDAD pe
-        JOIN ESPECIALIDAD e ON e.id_especialidad = pe.id_especialidad
-        WHERE pe.id_profesor = @id AND e.nombre NOT IN (SELECT nombre FROM @lista);
+      .input('ids', sql.NVarChar(sql.MAX), ids).query(`
+        DELETE PROFESOR_ESPECIALIDAD WHERE id_profesor = @id
+          AND id_especialidad NOT IN (SELECT value FROM OPENJSON(@ids));
         INSERT INTO PROFESOR_ESPECIALIDAD (id_profesor, id_especialidad)
         SELECT @id, e.id_especialidad FROM ESPECIALIDAD e
-        WHERE e.nombre IN (SELECT nombre FROM @lista)
+        WHERE e.id_especialidad IN (SELECT value FROM OPENJSON(@ids))
           AND NOT EXISTS (SELECT 1 FROM PROFESOR_ESPECIALIDAD pe
             WHERE pe.id_profesor = @id AND pe.id_especialidad = e.id_especialidad);
       `);

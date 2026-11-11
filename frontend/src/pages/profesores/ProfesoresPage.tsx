@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { GraduationCap, Plus, Search } from "lucide-react";
 import { useToast } from "../../context/ToastContext";
 
 import {
   obtenerProfesores,
+  obtenerEspecialidades,
   crearProfesor,
   actualizarProfesor,
   eliminarProfesor as eliminarProfesorApi,
@@ -16,7 +17,7 @@ import {
 import { obtenerGrupos } from "../../services/grupoService";
 import { obtenerCursos } from "../../services/cursoService";
 
-import type { Profesor } from "../../types/profesor";
+import type { Especialidad, Profesor } from "../../types/profesor";
 import type { AsignacionProfesor } from "../../types/asignacionProfesor";
 import type { Grupo } from "../../types/grupo";
 import type { Curso } from "../../types/curso";
@@ -25,6 +26,7 @@ import type { ProfesorFormData } from "../../schema/profesorSchema";
 import ProfesorTable from "../../components/profesores/ProfesorTable";
 import ProfesorForm from "../../components/profesores/ProfesorForm";
 import AdministrarAsignacionesModal from "../../components/profesores/AdministrarAsignacionesModal";
+import EspecialidadesCrud from "../../components/profesores/EspecialidadesCrud";
 import Modal from "../../components/ui/Modal";
 
 function ProfesoresPage() {
@@ -34,6 +36,8 @@ function ProfesoresPage() {
   const [asignaciones, setAsignaciones] = useState<AsignacionProfesor[]>([]);
   const [grupos, setGrupos] = useState<Grupo[]>([]);
   const [cursos, setCursos] = useState<Curso[]>([]);
+  const [especialidades, setEspecialidades] = useState<(Especialidad & { profesores: number })[]>([]);
+  const [catalogoAbierto, setCatalogoAbierto] = useState(false);
 
   const [busqueda, setBusqueda] = useState("");
   const [loading, setLoading] = useState(true);
@@ -45,13 +49,15 @@ function ProfesoresPage() {
   const cargarDatos = useCallback(async (refresh = true) => {
     try {
       if (refresh) setLoading(true);
-      const [profesoresData, asignacionesData, gruposData, cursosData] = await Promise.all([
+      const [profesoresData, asignacionesData, gruposData, cursosData, especialidadesData] = await Promise.all([
         obtenerProfesores(),
         obtenerAsignaciones(),
         obtenerGrupos(),
         obtenerCursos(),
+        obtenerEspecialidades(),
       ]);
 
+      setEspecialidades(especialidadesData);
       setProfesores(profesoresData);
       setAsignaciones(asignacionesData);
       setGrupos(gruposData);
@@ -175,6 +181,15 @@ function ProfesoresPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Profesores</h1>
 
+        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCatalogoAbierto(true)}
+          className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+        >
+          <GraduationCap className="h-4 w-4 text-blue-800" aria-hidden="true" />
+          Especialidades
+        </button>
         <button
           type="button"
           onClick={abrirModalCrear}
@@ -183,6 +198,7 @@ function ProfesoresPage() {
           <Plus className="h-4 w-4 text-blue-200 transition group-hover:text-white" strokeWidth={2.5} />
           Nuevo profesor
         </button>
+        </div>
       </div>
 
       {/* Buscador */}
@@ -218,7 +234,12 @@ function ProfesoresPage() {
         onClose={cerrarModal}
         title={profesorSeleccionado ? "Editar profesor" : "Nuevo profesor"}
       >
-        <ProfesorForm profesor={profesorSeleccionado} onSubmit={handleGuardarProfesor} />
+        <ProfesorForm profesor={profesorSeleccionado} especialidades={especialidades} onSubmit={handleGuardarProfesor} />
+      </Modal>
+
+      {/* Catálogo de especialidades */}
+      <Modal isOpen={catalogoAbierto} onClose={() => setCatalogoAbierto(false)} title="Especialidades">
+        <EspecialidadesCrud especialidades={especialidades} onCambio={() => cargarDatos(false)} />
       </Modal>
 
       {/* Modal Administrar Asignaciones */}
