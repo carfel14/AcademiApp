@@ -123,7 +123,7 @@ function CursoForm({ curso, onSubmit }: CursoFormProps) {
               <input
                 type="number"
                 step="0.01"
-                min="0"
+                min="0.01"
                 {...register("precio_total", { valueAsNumber: true })}
                 className="w-full rounded-md border border-gray-300 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
               />
@@ -147,7 +147,7 @@ function CursoForm({ curso, onSubmit }: CursoFormProps) {
               <input
                 type="number"
                 step="0.01"
-                min="0"
+                min="0.01"
                 {...register("precio_matricula", { valueAsNumber: true })}
                 className="w-full rounded-md border border-gray-300 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
               />

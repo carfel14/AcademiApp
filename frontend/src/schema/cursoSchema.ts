@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-// CURSO: CHECK (precio_total >= 0) y CHECK (precio_matricula >= 0)
+// El script admite 0, pero la academia no ofrece cursos ni matrículas gratuitas.
 const precioSchema = z
-  .number()
-  .min(0, "El valor no puede ser negativo")
+  .number({ error: "Ingresa un monto" })
+  .gt(0, "El valor debe ser mayor que 0")
   .max(99999999.99, "El valor es demasiado alto");
 
 export const cursoSchema = z.object({

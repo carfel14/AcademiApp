@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 
 import {
   crearGrupoSchema,
+  fechaLocal,
   actualizarGrupoSchema,
   type CrearGrupoFormData,
   type ActualizarGrupoFormData,
@@ -150,6 +151,7 @@ function GrupoForm({ grupo, planes = [], onSubmit }: GrupoFormProps) {
 
             <input
               type="date"
+              min={fechaLocal(1)}
               {...register("fecha_inicio")}
               className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
             />

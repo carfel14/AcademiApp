@@ -81,6 +81,10 @@ export class GrupoService {
       throw new BadRequestException(
         'No se puede crear un grupo con un plan de estudio inactivo.',
       );
+    if (grupo.fecha_inicio.slice(0, 10) <= (await this.hoy()))
+      throw new BadRequestException(
+        'La fecha de inicio del grupo debe ser posterior a la fecha actual.',
+      );
 
     const { recordset } = await pool
       .request()
@@ -103,6 +107,11 @@ export class GrupoService {
       );
     }
     const hoy = await this.hoy();
+    // Solo cuentan los valores que realmente cambian: el formulario los envía siempre.
+    if (grupo.fecha_inicio?.slice(0, 10) === fechaISO(actual.fecha_inicio))
+      delete grupo.fecha_inicio;
+    if (grupo.duracion_meses === Number(actual.duracion_meses))
+      delete grupo.duracion_meses;
     if (
       fechaISO(actual.fecha_inicio)! <= hoy &&
       (grupo.fecha_inicio !== undefined || grupo.duracion_meses !== undefined)
@@ -122,6 +131,10 @@ export class GrupoService {
       request.input('nombre', sql.NVarChar(100), grupo.nombre.trim());
     }
     if (grupo.fecha_inicio !== undefined) {
+      if (grupo.fecha_inicio.slice(0, 10) <= hoy)
+        throw new BadRequestException(
+          'La fecha de inicio del grupo debe ser posterior a la fecha actual.',
+        );
       campos.push('fecha_inicio = CONVERT(DATE, @fecha_inicio, 23)');
       request.input(
         'fecha_inicio',

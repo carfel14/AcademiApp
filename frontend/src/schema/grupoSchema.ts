@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+/** Fecha local YYYY-MM-DD desplazada `dias` días desde hoy. */
+export function fechaLocal(dias = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + dias);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const duracionMesesSchema = z
   .number({
     error: "La duración debe ser un número",
@@ -24,7 +31,8 @@ export const crearGrupoSchema = z.object({
 
   fecha_inicio: z
     .string()
-    .min(1, "La fecha de inicio es obligatoria"),
+    .min(1, "La fecha de inicio es obligatoria")
+    .refine((fecha) => fecha > fechaLocal(), "La fecha de inicio debe ser posterior a hoy"),
 });
 
 export const actualizarGrupoSchema = z.object({
